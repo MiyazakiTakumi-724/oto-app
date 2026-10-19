@@ -245,3 +245,4 @@ main {
 .sync-actions .pill:not(.wide) { flex: 1; }
 .sync-banner { display: flex; align-items: center; gap: 10px; background: var(--bg-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
 .sync-banner span { flex: 1; min-width: 0; }
+.link { color: var(--muted); }
