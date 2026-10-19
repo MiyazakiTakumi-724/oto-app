@@ -72,10 +72,18 @@ function onYtState(e) {
   else if (e.data === YT.PlayerState.PAUSED) setPlaying(false);
   else if (e.data === YT.PlayerState.ENDED) ended();
   if (e.data === YT.PlayerState.PLAYING) {
+    applyYtSpeed();
     const t = current();
     const data = yt.getVideoData?.();
     if (t && data?.title && t.titlePending) emit('yt-title', t, data.title, data.author);
   }
+}
+
+// YouTube側の機能で変えられるのは再生速度だけ(音声そのものには手を加えられない)
+function applyYtSpeed() {
+  if (!yt?.setPlaybackRate) return;
+  const speed = Math.min(2, Math.max(0.25, fx.settings.speed));
+  if (yt.getPlaybackRate?.() !== speed) yt.setPlaybackRate(speed);
 }
 
 function startYtTimer() {
@@ -312,6 +320,7 @@ function analyzeSoon(t) {
 
 fx.onChange(() => {
   if (fx.needsGraph()) fx.ensureGraph(decks);
+  if (current()?.type === 'youtube') applyYtSpeed();
   decks.forEach((d) => { d.el.playbackRate = fx.settings.speed; });
   const t = current();
   if (t?.type === 'file') {
