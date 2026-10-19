@@ -1,3 +1,5 @@
+<img src="icons/icon.svg" alt="" width="96" height="96">
+
 # Oto 音楽プレイヤー
 
 スマホのホーム画面に追加して使う、YouTube Music風の音楽プレイヤー(PWA)。ビルド不要の静的サイトなので、このフォルダをそのまま GitHub Pages に置けば動きます。

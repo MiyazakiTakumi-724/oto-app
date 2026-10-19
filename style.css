@@ -42,6 +42,8 @@ svg .fill { fill: currentColor; stroke: none; }
 }
 .topbar h1 { margin: 0; font-size: 26px; font-weight: 800; flex: 1; order: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #backBtn { order: 1; margin-left: -6px; }
+.topbar .brand { order: 1; width: 30px; height: 30px; border-radius: 8px; flex: none; }
+#backBtn:not(.hidden) ~ .brand { display: none; }
 
 main {
   padding: 4px 16px calc(var(--tab-h) + var(--mini-h) + var(--safe-b) + 24px);
@@ -92,6 +94,8 @@ main {
 .playlist-item .art-sm { display: grid; place-items: center; color: var(--muted); }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 16px; line-height: 1.7; }
+.empty p { margin: 0; }
+.empty-logo { display: block; width: 88px; height: 88px; margin: 0 auto 16px; border-radius: 20px; opacity: .9; }
 
 /* 追加画面 */
 .card { background: var(--bg-2); border-radius: 14px; padding: 16px; margin-bottom: 14px; }

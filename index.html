@@ -10,6 +10,14 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Oto">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Oto 音楽プレイヤー">
+<meta property="og:description" content="自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー">
+<meta property="og:url" content="https://miyazakitakumi-724.github.io/oto_app/">
+<meta property="og:image" content="https://miyazakitakumi-724.github.io/oto_app/icons/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -21,6 +29,7 @@
   <button id="backBtn" class="icon-btn hidden" aria-label="戻る">
     <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
   </button>
+  <img class="brand" src="icons/icon.svg" alt="Oto" width="30" height="30">
 </header>
 
 <main id="main">
@@ -38,7 +47,10 @@
       <button id="shuffleAllBtn" class="pill">⤨ シャッフル</button>
     </div>
     <ul id="libraryList" class="track-list"></ul>
-    <p id="libraryEmpty" class="empty hidden">まだ曲がありません。下の「追加」から音楽ファイルかYouTubeのURLを追加してください。</p>
+    <div id="libraryEmpty" class="empty hidden">
+      <img class="empty-logo" src="icons/icon.svg" alt="" width="88" height="88">
+      <p>まだ曲がありません。下の「追加」から音楽ファイルかYouTubeのURLを追加してください。</p>
+    </div>
   </section>
 
   <!-- プレイリスト一覧 -->

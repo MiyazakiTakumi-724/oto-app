@@ -8,8 +8,11 @@ const $ = (s) => document.querySelector(s);
 
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path class="fill" d="M7 4l13 8-13 8z"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path class="fill" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+// ジャケットがない曲の画像: 暗い背景にOtoのロゴ
 const ICON_NOTE = 'data:image/svg+xml,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#2a2a2d"/><path d="M20 32V14l14-3v18" fill="none" stroke="#6b6b70" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17" cy="32" r="3.5" fill="#6b6b70"/><circle cx="31" cy="29" r="3.5" fill="#6b6b70"/></svg>');
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a5b"/><stop offset="1" stop-color="#e8336d"/></linearGradient></defs>' +
+  '<rect width="512" height="512" fill="#2a2a2d"/><g transform="translate(256 256) scale(.78) translate(-256 -256)" fill="none" stroke="url(#g)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M184 268V158Q243 118 302 146T420 134V292"/><circle cx="138" cy="268" r="46"/><circle cx="374" cy="292" r="46"/><path d="M230 234H282M256 234V326"/></g></svg>');
 
 let tracks = [];      // ライブラリ(追加日の新しい順)
 let playlists = [];

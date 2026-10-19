@@ -350,7 +350,10 @@ function stopAll() {
 
 function updateMediaSession(t) {
   if (!('mediaSession' in navigator)) return;
-  const artwork = t.artUrl ? [{ src: t.artUrl, sizes: '512x512', type: 'image/jpeg' }] : [];
+  // ジャケットがなければ、ロック画面や通知にはOtoのアイコンを出す
+  const artwork = t.artUrl
+    ? [{ src: t.artUrl, sizes: '512x512', type: 'image/jpeg' }]
+    : [{ src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }];
   navigator.mediaSession.metadata = new MediaMetadata({
     title: t.title, artist: t.artist || '', album: t.album || '', artwork,
   });
