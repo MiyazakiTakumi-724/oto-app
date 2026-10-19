@@ -1,4 +1,4 @@
-// Googleドライブ同期: 各自のドライブの「Oto」フォルダに曲ファイルとライブラリ情報(oto-library.json)を置き、
+// Googleドライブ同期: 各自のドライブの「oto」フォルダに曲ファイルとライブラリ情報(oto-library.json)を置き、
 // スマホとPCで同じ曲・プレイリストを使えるようにする。アプリが作ったファイルだけを扱う drive.file 権限を使う
 import * as db from './db.js';
 import { GOOGLE_CLIENT_ID } from './config.js';
@@ -169,7 +169,7 @@ async function createMeta(meta) {
 async function ensureFolder() {
   const found = await findOne("mimeType='application/vnd.google-apps.folder' and trashed=false and appProperties has { key='oto' and value='root' }");
   if (found) return found.id;
-  return createMeta({ name: 'Oto', mimeType: 'application/vnd.google-apps.folder', appProperties: { oto: 'root' } });
+  return createMeta({ name: 'oto', mimeType: 'application/vnd.google-apps.folder', appProperties: { oto: 'root' } });
 }
 
 // 大きなファイルも送れるよう、再開可能アップロードを使う

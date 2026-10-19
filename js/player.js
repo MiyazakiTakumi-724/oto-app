@@ -350,7 +350,7 @@ function stopAll() {
 
 function updateMediaSession(t) {
   if (!('mediaSession' in navigator)) return;
-  // ジャケットがなければ、ロック画面や通知にはOtoのアイコンを出す
+  // ジャケットがなければ、ロック画面や通知にはotoのアイコンを出す
   const artwork = t.artUrl
     ? [{ src: t.artUrl, sizes: '512x512', type: 'image/jpeg' }]
     : [{ src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }];

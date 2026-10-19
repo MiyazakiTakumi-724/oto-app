@@ -8,7 +8,7 @@ const $ = (s) => document.querySelector(s);
 
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path class="fill" d="M7 4l13 8-13 8z"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path class="fill" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
-// ジャケットがない曲の画像: 暗い背景にOtoのロゴ
+// ジャケットがない曲の画像: 暗い背景にotoのロゴ
 const ICON_NOTE = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a5b"/><stop offset="1" stop-color="#e8336d"/></linearGradient></defs>' +
   '<rect width="512" height="512" fill="#2a2a2d"/><g transform="translate(256 256) scale(.78) translate(-256 -256)" fill="none" stroke="url(#g)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">' +
@@ -638,7 +638,7 @@ function renderSync() {
   $('#syncLogoutBtn').classList.toggle('hidden', !on || !st.enabled);
   let text;
   if (!on) text = '同期機能は準備中です。';
-  else if (!st.enabled) text = 'ログインすると、曲とプレイリストが自分のGoogleドライブの「Oto」フォルダに保存され、同じアカウントでログインした端末どうしで同期されます。';
+  else if (!st.enabled) text = 'ログインすると、曲とプレイリストが自分のGoogleドライブの「oto」フォルダに保存され、同じアカウントでログインした端末どうしで同期されます。';
   else if (st.busy) text = st.progress || '同期中…';
   else if (st.needsLogin) text = 'ログインの有効期限が切れました。同期を続けるにはログインし直してください。';
   else if (st.error) text = st.error;

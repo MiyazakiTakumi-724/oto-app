@@ -1,6 +1,6 @@
 {
-  "name": "Oto 音楽プレイヤー",
-  "short_name": "Oto",
+  "name": "oto 音楽プレイヤー",
+  "short_name": "oto",
   "description": "自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー",
   "lang": "ja",
   "start_url": "./",
