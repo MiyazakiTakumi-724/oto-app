@@ -1,8 +1,25 @@
-// 再生エンジン: 端末のファイルは <audio>、YouTubeは公式 IFrame Player API で再生する
+// 再生エンジン: 端末のファイルは <audio>(2台を交互に使い、クロスフェードできる)、
+// YouTubeは公式 IFrame Player API で再生する
 import { getBlob } from './db.js';
+import * as fx from './fx.js';
 
-const audio = new Audio();
-audio.preload = 'auto';
+// ほぼ無音の短いWAV。iOSで2台目のプレイヤーを最初の操作時に再生可能にしておくために使う
+const SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAA';
+
+function makeDeck() {
+  const el = new Audio();
+  el.preload = 'auto';
+  el.preservesPitch = true;
+  el.webkitPreservesPitch = true;
+  return { el, url: null };
+}
+
+const decks = [makeDeck(), makeDeck()];
+let active = 0;
+const deck = () => decks[active];
+let unlocked = false;
+let fadeTimer = null;
+let fading = false;
 
 const listeners = {};
 export function on(ev, fn) { (listeners[ev] ||= []).push(fn); }
@@ -17,7 +34,6 @@ export const state = {
   playing: false,
 };
 
-let objectUrl = null;
 let loadToken = 0;
 
 export const current = () => state.queue[state.index] || null;
@@ -78,50 +94,117 @@ function setPlaying(p) {
   emit('state', p);
 }
 
-audio.addEventListener('play', () => current()?.type === 'file' && setPlaying(true));
-audio.addEventListener('pause', () => current()?.type === 'file' && setPlaying(false));
-audio.addEventListener('ended', () => ended());
-audio.addEventListener('timeupdate', () => {
-  emit('time', audio.currentTime, audio.duration || current()?.duration || 0);
-  updatePositionState();
-});
-audio.addEventListener('error', () => {
-  if (current()?.type === 'file' && audio.src) emit('error', 'このファイルは再生できません');
+const isActive = (d) => d === deck() && current()?.type === 'file';
+
+decks.forEach((d) => {
+  d.el.addEventListener('play', () => isActive(d) && setPlaying(true));
+  d.el.addEventListener('pause', () => isActive(d) && !fading && setPlaying(false));
+  d.el.addEventListener('ended', () => isActive(d) && ended());
+  d.el.addEventListener('timeupdate', () => {
+    if (!isActive(d)) return;
+    emit('time', d.el.currentTime, d.el.duration || current()?.duration || 0);
+    updatePositionState();
+  });
+  d.el.addEventListener('error', () => {
+    if (isActive(d) && d.url) emit('error', 'このファイルは再生できません');
+  });
 });
 
 function updatePositionState() {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-  const d = audio.duration;
+  const el = deck().el;
+  const d = el.duration;
   if (!Number.isFinite(d) || d <= 0) return;
   try {
-    navigator.mediaSession.setPositionState({ duration: d, position: Math.min(audio.currentTime, d), playbackRate: audio.playbackRate });
+    navigator.mediaSession.setPositionState({ duration: d, position: Math.min(el.currentTime, d), playbackRate: el.playbackRate });
   } catch { /* 一部ブラウザは未対応 */ }
 }
 
+// ユーザー操作の中で呼ぶ: 音声処理の準備と、2台目のプレイヤーの再生許可
+function userGesture() {
+  if (fx.needsGraph()) fx.ensureGraph(decks);
+  else fx.resume();
+  if (unlocked) return;
+  unlocked = true;
+  decks.forEach((d) => {
+    if (d === deck()) return;
+    d.el.src = SILENT;
+    d.el.play().then(() => d.el.pause()).catch(() => { unlocked = false; });
+  });
+}
+
+const startOf = (t) => (fx.settings.trimSilence && t.analysis?.start > 0.3 ? t.analysis.start : 0);
+
+function endOf(t, el) {
+  const dur = el.duration;
+  if (fx.settings.trimSilence && t.analysis && t.analysis.end < (dur || Infinity) - 0.3) return t.analysis.end;
+  return Number.isFinite(dur) ? dur : 0;
+}
+
+// デッキに曲をセットし、再生位置の準備ができたら解決する
+function prepare(d, t, blob) {
+  return new Promise((resolve) => {
+    if (d.url) URL.revokeObjectURL(d.url);
+    d.url = URL.createObjectURL(blob);
+    d.el.src = d.url;
+    d.el.playbackRate = fx.settings.speed;
+    fx.setNorm(d, t);
+    const done = () => {
+      d.el.removeEventListener('loadedmetadata', done);
+      const s = startOf(t);
+      if (s) { try { d.el.currentTime = s; } catch { /* 無視 */ } }
+      d.el.playbackRate = fx.settings.speed;
+      resolve();
+    };
+    d.el.addEventListener('loadedmetadata', done);
+    d.el.addEventListener('error', () => resolve(), { once: true });
+  });
+}
+
+function stopFade() {
+  clearTimeout(fadeTimer);
+  if (!fading) return;
+  fading = false;
+  decks.forEach((d) => { if (d !== deck()) d.el.pause(); });
+  fx.setFade(deck(), 1);
+}
+
 function ended() {
-  if (state.repeat === 'one') { seek(0); play(); return; }
+  const t = current();
+  if (state.repeat === 'one') { seek(t ? startOf(t) : 0); play(); return; }
   next(true);
+}
+
+function nextIndex(auto) {
+  if (state.index < state.queue.length - 1) return state.index + 1;
+  if (state.repeat === 'all' || !auto) return 0;
+  return -1;
 }
 
 async function load(autoplay = true) {
   const token = ++loadToken;
+  stopFade();
   const t = current();
   emit('change', t);
   if (!t) { stopAll(); return; }
 
   if (t.type === 'file') {
+    if (autoplay) userGesture();
     if (yt?.pauseVideo) yt.pauseVideo();
     clearInterval(ytTimer);
     emit('yt-visible', false);
     const blob = await getBlob(t.id);
     if (token !== loadToken) return;
     if (!blob) { emit('error', '音声データが見つかりません'); return; }
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrl = URL.createObjectURL(blob);
-    audio.src = objectUrl;
-    if (autoplay) audio.play().catch(() => setPlaying(false));
+    const d = deck();
+    d.el.pause();
+    fx.setFade(d, 1);
+    await prepare(d, t, blob);
+    if (token !== loadToken) return;
+    if (autoplay) d.el.play().catch(() => setPlaying(false));
+    analyzeSoon(t);
   } else {
-    audio.pause();
+    decks.forEach((d) => d.el.pause());
     emit('yt-visible', true);
     try {
       const p = await loadYouTube();
@@ -135,8 +218,111 @@ async function load(autoplay = true) {
   updateMediaSession(t);
 }
 
+// 再生中の曲の終わりが近づいたら、次の曲を重ねながら切り替える
+async function crossfadeTo(ni, seconds) {
+  const token = ++loadToken;
+  const from = deck();
+  fading = true;
+  state.index = ni;
+  const t = current();
+  const blob = await getBlob(t.id);
+  if (token !== loadToken) return;
+  if (!blob) { fading = false; next(true); return; }
+  active = 1 - active;
+  const to = deck();
+  fx.setFade(to, 0);
+  await prepare(to, t, blob);
+  if (token !== loadToken) return;
+  try {
+    await to.el.play();
+  } catch {
+    // 再生できなければ通常の切り替えにする
+    fading = false;
+    from.el.pause();
+    fx.setFade(to, 1);
+    emit('change', t);
+    return;
+  }
+  fx.rampFade(from, 0, seconds);
+  fx.rampFade(to, 1, seconds);
+  emit('change', t);
+  emit('queue');
+  updateMediaSession(t);
+  analyzeSoon(t);
+  fadeTimer = setTimeout(() => {
+    from.el.pause();
+    fading = false;
+  }, seconds * 1000 + 150);
+}
+
+function tick() {
+  const t = current();
+  const d = deck();
+  if (!t || t.type !== 'file' || d.el.paused || fading || !d.url) return;
+  const end = endOf(t, d.el);
+  if (!end) return;
+  const remain = (end - d.el.currentTime) / (d.el.playbackRate || 1);
+  const cf = fx.settings.crossfade;
+  if (cf > 0 && fx.hasGraph() && state.repeat !== 'one' && remain <= cf) {
+    const ni = nextIndex(true);
+    if (ni >= 0 && ni !== state.index && state.queue[ni].type === 'file') {
+      crossfadeTo(ni, Math.max(0.5, remain));
+      return;
+    }
+  }
+  // 無音カット: 曲の最後の無音に入ったら次へ
+  if (remain <= 0 && end < (d.el.duration || Infinity) - 0.1) ended();
+}
+setInterval(tick, 200);
+
+// ---------- 音量・無音の解析(結果は曲データに保存される) ----------
+let analysisChain = Promise.resolve();
+const analyzing = new Set();
+
+function analyzeTrack(t) {
+  if (!fx.needsAnalysis(t) || analyzing.has(t.id)) return;
+  analyzing.add(t.id);
+  analysisChain = analysisChain.then(async () => {
+    try {
+      const blob = await getBlob(t.id);
+      if (!blob) return;
+      t.analysis = await fx.analyze(blob);
+      emit('analyzed', t);
+      if (current() === t) {
+        fx.setNorm(deck(), t);
+        // 解析が終わる前に再生が始まっていたら、最初の無音をここで飛ばす
+        const s = startOf(t);
+        if (s && deck().el.currentTime < s - 0.2) deck().el.currentTime = s;
+      }
+    } catch (e) {
+      console.warn('解析できませんでした', e);
+    } finally {
+      analyzing.delete(t.id);
+    }
+  });
+}
+
+// 今の曲と次の曲を解析する(音量補正か無音カットが有効なときだけ)
+function analyzeSoon(t) {
+  if (!fx.settings.normalize && !fx.settings.trimSilence) return;
+  analyzeTrack(t);
+  const ni = nextIndex(true);
+  if (ni >= 0) analyzeTrack(state.queue[ni]);
+}
+
+fx.onChange(() => {
+  if (fx.needsGraph()) fx.ensureGraph(decks);
+  decks.forEach((d) => { d.el.playbackRate = fx.settings.speed; });
+  const t = current();
+  if (t?.type === 'file') {
+    fx.setNorm(deck(), t);
+    analyzeSoon(t);
+  }
+});
+
 function stopAll() {
-  audio.pause();
+  stopFade();
+  decks.forEach((d) => d.el.pause());
   if (yt?.stopVideo) yt.stopVideo();
   emit('yt-visible', false);
   setPlaying(false);
@@ -153,15 +339,19 @@ function updateMediaSession(t) {
 export function play() {
   const t = current();
   if (!t) return;
-  if (t.type === 'file') audio.play().catch(() => {});
-  else yt?.playVideo?.();
+  if (t.type === 'file') {
+    userGesture();
+    deck().el.play().catch(() => {});
+  } else yt?.playVideo?.();
 }
 
 export function pause() {
   const t = current();
   if (!t) return;
-  if (t.type === 'file') audio.pause();
-  else yt?.pauseVideo?.();
+  if (t.type === 'file') {
+    stopFade();
+    deck().el.pause();
+  } else yt?.pauseVideo?.();
 }
 
 export const toggle = () => (state.playing ? pause() : play());
@@ -169,25 +359,28 @@ export const toggle = () => (state.playing ? pause() : play());
 export function seek(sec) {
   const t = current();
   if (!t) return;
-  if (t.type === 'file') audio.currentTime = sec;
-  else yt?.seekTo?.(sec, true);
+  if (t.type === 'file') {
+    stopFade();
+    deck().el.currentTime = sec;
+  } else yt?.seekTo?.(sec, true);
 }
 
 export function currentTime() {
-  return current()?.type === 'youtube' ? (yt?.getCurrentTime?.() || 0) : audio.currentTime;
+  return current()?.type === 'youtube' ? (yt?.getCurrentTime?.() || 0) : deck().el.currentTime;
 }
 
 export function next(auto = false) {
   if (!state.queue.length) return;
-  if (state.index < state.queue.length - 1) state.index++;
-  else if (state.repeat === 'all' || !auto) state.index = 0;
-  else { pause(); seek(0); return; }
+  const ni = nextIndex(auto);
+  if (ni < 0) { pause(); seek(0); return; }
+  state.index = ni;
   load(true);
 }
 
 export function prev() {
   if (!state.queue.length) return;
-  if (currentTime() > 3) { seek(0); return; }
+  const t = current();
+  if (currentTime() > (t ? startOf(t) : 0) + 3) { seek(t ? startOf(t) : 0); return; }
   state.index = state.index > 0 ? state.index - 1 : state.queue.length - 1;
   load(true);
 }

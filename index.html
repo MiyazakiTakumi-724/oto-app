@@ -80,6 +80,65 @@
       <p id="storageInfo" class="muted small">確認中…</p>
     </div>
   </section>
+  <!-- サウンド -->
+  <section id="view-sound" class="view hidden">
+    <p class="muted small sound-note">端末の音楽ファイルに効きます。YouTubeの曲には効きません。</p>
+
+    <div class="card">
+      <h2>曲のつなぎ方</h2>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxCrossfade">クロスフェード</label>
+          <output id="fxCrossfadeVal" for="fxCrossfade"></output>
+        </div>
+        <input id="fxCrossfade" type="range" min="0" max="12" step="1">
+        <p class="muted small">曲の終わりと次の曲の始まりを重ねて、途切れずにつなぎます。</p>
+      </div>
+      <label class="switch-row" for="fxTrim">
+        <span><b>無音カット</b><span class="muted small">曲の最初と最後の無音を飛ばします</span></span>
+        <input id="fxTrim" type="checkbox" class="switch">
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>音質</h2>
+      <label class="switch-row" for="fxNormalize">
+        <span><b>音量の自動調整</b><span class="muted small">曲ごとの音量の差をそろえます</span></span>
+        <input id="fxNormalize" type="checkbox" class="switch">
+      </label>
+      <label class="switch-row" for="fxNight">
+        <span><b>ナイトモード</b><span class="muted small">小さい音を聞きやすくし、大きい音を抑えます</span></span>
+        <input id="fxNight" type="checkbox" class="switch">
+      </label>
+      <div class="setting">
+        <div class="setting-head"><span>イコライザー</span></div>
+        <div id="fxPresets" class="chips"></div>
+        <div id="fxEq" class="eq"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>加工</h2>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxReverb">ホール残響</label>
+          <output id="fxReverbVal" for="fxReverb"></output>
+        </div>
+        <input id="fxReverb" type="range" min="0" max="100" step="5">
+      </div>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxSpeed">再生速度</label>
+          <output id="fxSpeedVal" for="fxSpeed"></output>
+        </div>
+        <input id="fxSpeed" type="range" min="0.5" max="2" step="0.05">
+        <p class="muted small">音程は変わりません。</p>
+      </div>
+    </div>
+
+    <button id="fxReset" class="pill wide">すべて元に戻す</button>
+    <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、クロスフェード・音量の自動調整・ナイトモード・イコライザー・残響をオフにしてアプリを開き直してください。</p>
+  </section>
 </main>
 
 <!-- YouTube 埋め込みプレイヤー置き場(再生中は常に表示) -->
@@ -106,6 +165,9 @@
   </button>
   <button data-tab="playlists">
     <svg viewBox="0 0 24 24"><path d="M4 6h11M4 12h11M4 18h7M18 6v10.5"/><circle cx="16" cy="17" r="2.5"/></svg><span>プレイリスト</span>
+  </button>
+  <button data-tab="sound">
+    <svg viewBox="0 0 24 24"><path d="M5 4v16M12 4v16M19 4v16"/><circle class="fill" cx="5" cy="14" r="2.4"/><circle class="fill" cx="12" cy="8" r="2.4"/><circle class="fill" cx="19" cy="15" r="2.4"/></svg><span>サウンド</span>
   </button>
   <button data-tab="add">
     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>追加</span>

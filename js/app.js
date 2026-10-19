@@ -1,6 +1,7 @@
 import * as db from './db.js';
 import * as player from './player.js';
 import { readTags } from './tags.js';
+import * as fx from './fx.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -213,7 +214,7 @@ function rerender() {
 }
 
 // ---------- 画面切り替え ----------
-const TITLES = { library: 'ライブラリ', playlists: 'プレイリスト', add: '追加' };
+const TITLES = { library: 'ライブラリ', playlists: 'プレイリスト', sound: 'サウンド', add: '追加' };
 
 function show(v) {
   view = v;
@@ -223,6 +224,7 @@ function show(v) {
   if (TITLES[v]) $('#viewTitle').textContent = TITLES[v];
   window.scrollTo(0, 0);
   if (v === 'add') updateStorageInfo();
+  if (v === 'sound') renderSound();
   rerender();
 }
 
@@ -451,6 +453,70 @@ function placeYtDock() {
   }
 }
 
+// ---------- サウンド設定 ----------
+function renderSound() {
+  const s = fx.settings;
+  $('#fxCrossfade').value = s.crossfade;
+  $('#fxCrossfadeVal').textContent = s.crossfade ? `${s.crossfade}秒` : 'オフ';
+  $('#fxTrim').checked = s.trimSilence;
+  $('#fxNormalize').checked = s.normalize;
+  $('#fxNight').checked = s.night;
+  $('#fxReverb').value = s.reverb;
+  $('#fxReverbVal').textContent = s.reverb ? `${s.reverb}%` : 'オフ';
+  $('#fxSpeed').value = s.speed;
+  $('#fxSpeedVal').textContent = `${Number(s.speed).toFixed(2)}倍`;
+
+  const chips = $('#fxPresets');
+  chips.innerHTML = '';
+  Object.entries(fx.PRESETS).forEach(([key, p]) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (s.preset === key ? ' on' : '');
+    b.textContent = p.name;
+    b.onclick = () => { fx.update({ preset: key, eq: p.eq.slice() }); renderSound(); };
+    chips.appendChild(b);
+  });
+  if (s.preset === 'custom') {
+    const c = document.createElement('span');
+    c.className = 'chip on';
+    c.style.display = 'inline-grid';
+    c.style.placeItems = 'center';
+    c.textContent = 'カスタム';
+    chips.appendChild(c);
+  }
+
+  const eq = $('#fxEq');
+  if (!eq.children.length) {
+    fx.BANDS.forEach((band, i) => {
+      const row = document.createElement('div');
+      row.className = 'eq-row';
+      row.innerHTML = `<span>${band.label}</span><input id="fxEq${i}" type="range" min="-12" max="12" step="1" aria-label="${band.label}"><span id="fxEqVal${i}"></span>`;
+      eq.appendChild(row);
+      row.querySelector('input').addEventListener('input', (e) => {
+        const g = fx.settings.eq.slice();
+        g[i] = Number(e.target.value);
+        fx.update({ eq: g, preset: 'custom' });
+        renderSound();
+      });
+    });
+  }
+  s.eq.forEach((g, i) => {
+    $(`#fxEq${i}`).value = g;
+    $(`#fxEqVal${i}`).textContent = `${g > 0 ? '+' : ''}${g}dB`;
+  });
+}
+
+function bindSound() {
+  const num = (id, key) => $(id).addEventListener('input', (e) => { fx.update({ [key]: Number(e.target.value) }); renderSound(); });
+  const flag = (id, key) => $(id).addEventListener('change', (e) => { fx.update({ [key]: e.target.checked }); renderSound(); });
+  num('#fxCrossfade', 'crossfade');
+  num('#fxReverb', 'reverb');
+  num('#fxSpeed', 'speed');
+  flag('#fxTrim', 'trimSilence');
+  flag('#fxNormalize', 'normalize');
+  flag('#fxNight', 'night');
+  $('#fxReset').onclick = () => { fx.reset(); renderSound(); toast('サウンド設定を元に戻しました'); };
+}
+
 // ---------- 再生画面 ----------
 function openNow() {
   $('#nowPlaying').classList.add('open');
@@ -497,6 +563,7 @@ function restoreSession() {
 
 // ---------- イベント ----------
 function bind() {
+  bindSound();
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
   $('#backBtn').onclick = () => switchTab('playlists');
   $('#searchInput').addEventListener('input', renderLibrary);
@@ -557,6 +624,7 @@ function bind() {
   player.on('queue', () => { renderControls(); renderQueue(); saveSession(); });
   player.on('state', renderControls);
   player.on('error', toast);
+  player.on('analyzed', (t) => saveTrackMeta(t));
   player.on('yt-visible', (v) => { ytVisible = v; placeYtDock(); });
   player.on('yt-title', async (t, title, author) => {
     t.title = title;

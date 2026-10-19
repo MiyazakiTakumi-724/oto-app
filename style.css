@@ -102,6 +102,28 @@ main {
 .yt-form { display: flex; gap: 8px; }
 .yt-form input { flex: 1; min-width: 0; height: 40px; border: 0; border-radius: 10px; background: var(--bg-3); padding: 0 12px; outline: none; font-size: 16px; }
 
+/* サウンド設定 */
+.sound-note { margin: 0 0 12px; line-height: 1.6; }
+.setting { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.setting + .setting, .switch-row + .setting, .setting + .switch-row, .switch-row + .switch-row { border-top: 1px solid var(--line); }
+.setting-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; }
+.setting-head output { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 700; }
+.setting p.small { margin: 0; }
+.setting input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; cursor: pointer; }
+.switch-row > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.switch { appearance: none; -webkit-appearance: none; flex: none; width: 50px; height: 30px; border-radius: 15px; background: var(--bg-3); position: relative; transition: background .2s; cursor: pointer; margin: 0; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(20px); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chip { height: 32px; padding: 0 12px; border-radius: 16px; background: var(--bg-3); font-size: 13px; font-weight: 600; }
+.chip.on { background: var(--accent); color: var(--accent-ink); }
+.eq { display: flex; flex-direction: column; gap: 2px; }
+.eq-row { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.eq-row span:last-child { text-align: right; }
+.eq-row input { width: 100%; accent-color: var(--accent); }
+
 /* タブバー */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -209,3 +231,4 @@ main {
   main, .topbar { max-width: 680px; margin: 0 auto; }
   .mini { max-width: 664px; margin: 0 auto; }
 }
+#fxReset + .sound-note { margin-top: 12px; }
