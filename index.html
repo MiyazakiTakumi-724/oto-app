@@ -118,6 +118,68 @@
     </div>
 
     <div class="card">
+      <h2>立体音響</h2>
+      <p class="muted small">イヤホンやヘッドホンで聴くと効果がわかりやすくなります。</p>
+      <div class="setting">
+        <div class="setting-head"><span>モード</span></div>
+        <div id="fxSpatial" class="segmented" role="radiogroup" aria-label="立体音響のモード">
+          <button type="button" data-mode="off" role="radio">オフ</button>
+          <button type="button" data-mode="8d" role="radio">8Dオーディオ</button>
+          <button type="button" data-mode="surround" role="radio">サラウンド</button>
+        </div>
+        <p id="fxSpatialHelp" class="muted small"></p>
+      </div>
+      <div id="fxRotationRow" class="setting">
+        <div class="setting-head">
+          <label for="fxRotation">1周する時間</label>
+          <output id="fxRotationVal" for="fxRotation"></output>
+        </div>
+        <input id="fxRotation" type="range" min="2" max="30" step="1">
+      </div>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxWidth">ステレオ拡張</label>
+          <output id="fxWidthVal" for="fxWidth"></output>
+        </div>
+        <input id="fxWidth" type="range" min="0" max="100" step="5">
+        <p class="muted small">左右の広がりを強くして、音を広く感じさせます。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>ボーカルと伴奏</h2>
+      <div id="fxVocalPresets" class="chips">
+        <button type="button" class="chip" data-vocal="100" data-inst="100">そのまま</button>
+        <button type="button" class="chip" data-vocal="15" data-inst="100">カラオケ</button>
+        <button type="button" class="chip" data-vocal="160" data-inst="70">ボーカル強調</button>
+        <button type="button" class="chip" data-vocal="150" data-inst="20">ボーカルだけ</button>
+      </div>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxVocal">ボーカル</label>
+          <output id="fxVocalVal" for="fxVocal"></output>
+        </div>
+        <input id="fxVocal" type="range" min="0" max="200" step="5">
+      </div>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxInst">伴奏</label>
+          <output id="fxInstVal" for="fxInst"></output>
+        </div>
+        <input id="fxInst" type="range" min="0" max="200" step="5">
+        <p class="muted small">中央から聞こえる声の帯域をボーカルとして分けます。曲によっては、ベースやドラムの一部も一緒に変わります。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>表示</h2>
+      <label class="switch-row" for="fxViz">
+        <span><b>ビジュアライザー</b><span class="muted small">再生画面に、音に合わせて動くバーを表示します</span></span>
+        <input id="fxViz" type="checkbox" class="switch">
+      </label>
+    </div>
+
+    <div class="card">
       <h2>加工</h2>
       <div class="setting">
         <div class="setting-head">
@@ -137,7 +199,7 @@
     </div>
 
     <button id="fxReset" class="pill wide">すべて元に戻す</button>
-    <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、クロスフェード・音量の自動調整・ナイトモード・イコライザー・残響をオフにしてアプリを開き直してください。</p>
+    <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、「すべて元に戻す」を押してアプリを開き直してください。</p>
   </section>
 </main>
 
@@ -186,6 +248,7 @@
     </button>
   </div>
   <div id="artWrap" class="art-wrap"><img id="npArt" class="art-lg" alt=""></div>
+  <canvas id="viz" class="viz hidden" aria-hidden="true"></canvas>
   <div class="np-text">
     <div id="npTitle" class="title"></div>
     <div id="npArtist" class="sub"></div>

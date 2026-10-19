@@ -1,5 +1,6 @@
 // 音質・加工の設定と Web Audio の処理グラフ
-// 曲(<audio>) → 音量補正 → フェード → イコライザー → ナイトモード(コンプレッサー) → リバーブ → スピーカー
+// 曲(<audio>) → 音量補正 → フェード → ボーカル/伴奏 → ステレオ拡張 → イコライザー → ナイトモード(コンプレッサー)
+//   → 立体音響(8D・バーチャルサラウンド) → リバーブ → ビジュアライザー用の解析 → スピーカー
 
 const KEY = 'oto.fx';
 
@@ -29,6 +30,12 @@ const DEFAULTS = {
   night: false,        // 小さい音を持ち上げ、大きい音を抑える
   reverb: 0,           // 0〜100
   speed: 1,            // 再生速度(音程はそのまま)
+  vocal: 100,          // ボーカルの音量 % (0〜200)
+  inst: 100,           // 伴奏の音量 % (0〜200)
+  width: 0,            // ステレオ拡張 0〜100
+  spatial: 'off',      // off | 8d | surround
+  rotation: 8,         // 8Dオーディオが1周する秒数
+  visualizer: false,
 };
 
 function loadSettings() {
@@ -58,7 +65,9 @@ export function reset() {
 
 // 音声処理グラフが必要な設定か(再生速度と無音カットは <audio> だけで実現できる)
 export const needsGraph = () => !!graph || settings.crossfade > 0 || settings.normalize ||
-  settings.night || settings.reverb > 0 || settings.eq.some((g) => g !== 0);
+  settings.night || settings.reverb > 0 || settings.eq.some((g) => g !== 0) ||
+  settings.vocal !== 100 || settings.inst !== 100 || settings.width > 0 ||
+  settings.spatial !== 'off' || settings.visualizer;
 
 export const hasGraph = () => !!graph;
 
@@ -75,6 +84,121 @@ function makeImpulse(ctx, seconds = 2.4) {
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
   }
   return buf;
+}
+
+// ボーカル/伴奏: 左右の中央にある声の帯域(150Hz〜6kHz)をボーカルとみなし、残りを伴奏として音量を分ける
+// 出力 = 入力 × 伴奏 + 中央の声帯域 × (ボーカル − 伴奏)。両方100%なら入力そのまま
+function buildVocalStage(ctx, input) {
+  const out = ctx.createGain();
+  const inst = ctx.createGain();
+  input.connect(inst).connect(out);
+
+  const split = ctx.createChannelSplitter(2);
+  const mid = ctx.createGain();
+  mid.gain.value = 0.5;
+  input.connect(split);
+  split.connect(mid, 0);
+  split.connect(mid, 1);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 150;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 6000;
+  const merge = ctx.createChannelMerger(2);
+  mid.connect(hp).connect(lp);
+  lp.connect(merge, 0, 0);
+  lp.connect(merge, 0, 1);
+  const diff = ctx.createGain();
+  merge.connect(diff).connect(out);
+  return { out, inst, diff };
+}
+
+// ステレオ拡張: L' = L·(1+w)/2 + R·(1−w)/2、R' = R·(1+w)/2 + L·(1−w)/2(w=1で元のまま)
+function buildWidthStage(ctx, input) {
+  const split = ctx.createChannelSplitter(2);
+  const merge = ctx.createChannelMerger(2);
+  const ll = ctx.createGain();
+  const rr = ctx.createGain();
+  const lr = ctx.createGain();
+  const rl = ctx.createGain();
+  input.connect(split);
+  split.connect(ll, 0); ll.connect(merge, 0, 0);
+  split.connect(rr, 1); rr.connect(merge, 0, 1);
+  split.connect(lr, 0); lr.connect(merge, 0, 1);
+  split.connect(rl, 1); rl.connect(merge, 0, 0);
+  return { out: merge, same: [ll, rr], cross: [lr, rl] };
+}
+
+function makePanner(ctx) {
+  const p = ctx.createPanner();
+  p.panningModel = 'HRTF';
+  p.distanceModel = 'inverse';
+  p.refDistance = 1;
+  p.rolloffFactor = 0;
+  return p;
+}
+
+function setPos(p, x, y, z) {
+  if (p.positionX) {
+    p.positionX.value = x;
+    p.positionY.value = y;
+    p.positionZ.value = z;
+  } else {
+    p.setPosition(x, y, z);
+  }
+}
+
+// 立体音響: 何もしない経路・8Dオーディオ・バーチャルサラウンドを用意して、音量で切り替える
+function buildSpatialStage(ctx, input) {
+  const out = ctx.createGain();
+  const dry = ctx.createGain();
+  input.connect(dry).connect(out);
+
+  // 8D: 音源を頭のまわりで回す。位置は発振器で動かすので、画面を閉じても滑らかに回る
+  const d8 = ctx.createGain();
+  const p8 = makePanner(ctx);
+  p8.channelCount = 1;
+  p8.channelCountMode = 'explicit';
+  input.connect(p8).connect(d8).connect(out);
+  let osc = null;
+  if (p8.positionX) {
+    setPos(p8, 0, 0, 0);
+    const sin = ctx.createOscillator();
+    const cos = ctx.createOscillator();
+    cos.setPeriodicWave(ctx.createPeriodicWave(new Float32Array([0, 1]), new Float32Array([0, 0])));
+    const radius = 2;
+    const gx = ctx.createGain();
+    const gz = ctx.createGain();
+    gx.gain.value = radius;
+    gz.gain.value = radius;
+    sin.connect(gx).connect(p8.positionX);
+    cos.connect(gz).connect(p8.positionZ);
+    p8.positionY.value = 0.3;
+    sin.start();
+    cos.start();
+    osc = [sin, cos];
+  } else {
+    setPos(p8, 0, 0.3, -2);
+  }
+
+  // バーチャルサラウンド: 左右の音を、正面左右(±30°)に置いたスピーカーから鳴らしたように聞かせる
+  const sur = ctx.createGain();
+  const split = ctx.createChannelSplitter(2);
+  const pl = makePanner(ctx);
+  const pr = makePanner(ctx);
+  [pl, pr].forEach((p) => { p.channelCount = 1; p.channelCountMode = 'explicit'; });
+  const a = Math.PI / 6;
+  setPos(pl, -Math.sin(a) * 2, 0, -Math.cos(a) * 2);
+  setPos(pr, Math.sin(a) * 2, 0, -Math.cos(a) * 2);
+  input.connect(split);
+  split.connect(pl, 0);
+  split.connect(pr, 1);
+  pl.connect(sur);
+  pr.connect(sur);
+  sur.connect(out);
+
+  return { out, dry, d8, sur, p8, osc };
 }
 
 // decks: [{ el: HTMLAudioElement }, ...]。ユーザー操作の中で呼ぶこと(AudioContext の起動制限のため)
@@ -99,14 +223,21 @@ export function ensureGraph(decks) {
       const conv = ctx.createConvolver();
       const master = ctx.createGain();
 
-      let node = input;
+      const vocal = buildVocalStage(ctx, input);
+      const width = buildWidthStage(ctx, vocal.out);
+      let node = width.out;
       eq.forEach((f) => { node.connect(f); node = f; });
       node.connect(comp).connect(makeup);
-      makeup.connect(dry).connect(master);
-      makeup.connect(conv).connect(wet).connect(master);
+      const spatial = buildSpatialStage(ctx, makeup);
+      spatial.out.connect(dry).connect(master);
+      spatial.out.connect(conv).connect(wet).connect(master);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.8;
+      master.connect(analyser);
       master.connect(ctx.destination);
 
-      graph = { ctx, input, eq, comp, makeup, dry, wet, conv, impulse: false };
+      graph = { ctx, input, eq, comp, makeup, dry, wet, conv, vocal, width, spatial, analyser, impulse: false };
       decks.forEach((d) => {
         d.src = ctx.createMediaElementSource(d.el);
         d.norm = ctx.createGain();
@@ -150,7 +281,32 @@ function apply() {
     graph.impulse = true;
   }
   wet.gain.setTargetAtTime((settings.reverb / 100) * 0.6, now, 0.05);
+
+  const { vocal, width, spatial } = graph;
+  const v = settings.vocal / 100;
+  const i = settings.inst / 100;
+  vocal.inst.gain.setTargetAtTime(i, now, 0.05);
+  vocal.diff.gain.setTargetAtTime(v - i, now, 0.05);
+
+  const w = 1 + (settings.width / 100) * 1.5;
+  width.same.forEach((g) => g.gain.setTargetAtTime((1 + w) / 2, now, 0.05));
+  width.cross.forEach((g) => g.gain.setTargetAtTime((1 - w) / 2, now, 0.05));
+
+  const mode = settings.spatial;
+  spatial.dry.gain.setTargetAtTime(mode === 'off' ? 1 : 0, now, 0.08);
+  spatial.d8.gain.setTargetAtTime(mode === '8d' ? 2 : 0, now, 0.08);
+  spatial.sur.gain.setTargetAtTime(mode === 'surround' ? 1.6 : 0, now, 0.08);
+  spatial.osc?.forEach((o) => o.frequency.setValueAtTime(1 / Math.max(2, settings.rotation), now));
 }
+
+// ビジュアライザー用: 周波数ごとの大きさ(0〜255)を buf に入れる。音声処理を使っていなければ false
+export function readSpectrum(buf) {
+  if (!graph) return false;
+  graph.analyser.getByteFrequencyData(buf);
+  return true;
+}
+
+export const spectrumSize = () => (graph ? graph.analyser.frequencyBinCount : 0);
 
 // 曲ごとの音量補正(解析結果の dB)
 export function setNorm(deck, track) {

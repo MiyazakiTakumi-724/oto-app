@@ -465,6 +465,29 @@ function renderSound() {
   $('#fxReverbVal').textContent = s.reverb ? `${s.reverb}%` : 'オフ';
   $('#fxSpeed').value = s.speed;
   $('#fxSpeedVal').textContent = `${Number(s.speed).toFixed(2)}倍`;
+  $('#fxWidth').value = s.width;
+  $('#fxWidthVal').textContent = s.width ? `${s.width}%` : 'オフ';
+  $('#fxRotation').value = s.rotation;
+  $('#fxRotationVal').textContent = `${s.rotation}秒`;
+  $('#fxRotationRow').classList.toggle('hidden', s.spatial !== '8d');
+  document.querySelectorAll('#fxSpatial button').forEach((b) => {
+    const on = b.dataset.mode === s.spatial;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', on);
+  });
+  $('#fxSpatialHelp').textContent = {
+    off: '立体音響を使いません。',
+    '8d': '音が頭のまわりをゆっくり回るように聞こえます。',
+    surround: '正面に置いた左右のスピーカーで聴いているように聞こえます。耳が疲れにくくなります。',
+  }[s.spatial] || '';
+  $('#fxVocal').value = s.vocal;
+  $('#fxVocalVal').textContent = `${s.vocal}%`;
+  $('#fxInst').value = s.inst;
+  $('#fxInstVal').textContent = `${s.inst}%`;
+  document.querySelectorAll('#fxVocalPresets .chip').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.vocal) === s.vocal && Number(b.dataset.inst) === s.inst);
+  });
+  $('#fxViz').checked = s.visualizer;
 
   const chips = $('#fxPresets');
   chips.innerHTML = '';
@@ -514,7 +537,74 @@ function bindSound() {
   flag('#fxTrim', 'trimSilence');
   flag('#fxNormalize', 'normalize');
   flag('#fxNight', 'night');
+  flag('#fxViz', 'visualizer');
+  num('#fxWidth', 'width');
+  num('#fxRotation', 'rotation');
+  num('#fxVocal', 'vocal');
+  num('#fxInst', 'inst');
+  document.querySelectorAll('#fxSpatial button').forEach((b) => {
+    b.onclick = () => { fx.update({ spatial: b.dataset.mode }); renderSound(); };
+  });
+  document.querySelectorAll('#fxVocalPresets .chip').forEach((b) => {
+    b.onclick = () => { fx.update({ vocal: Number(b.dataset.vocal), inst: Number(b.dataset.inst) }); renderSound(); };
+  });
   $('#fxReset').onclick = () => { fx.reset(); renderSound(); toast('サウンド設定を元に戻しました'); };
+}
+
+// ---------- ビジュアライザー ----------
+let vizRaf = 0;
+let vizData = null;
+const VIZ_BARS = 40;
+
+function vizActive() {
+  return fx.settings.visualizer && fx.hasGraph() && player.current()?.type === 'file' &&
+    $('#nowPlaying').classList.contains('open');
+}
+
+function drawViz() {
+  vizRaf = 0;
+  const canvas = $('#viz');
+  const on = vizActive();
+  canvas.classList.toggle('hidden', !on);
+  if (!on) return;
+  const n = fx.spectrumSize();
+  if (!vizData || vizData.length !== n) vizData = new Uint8Array(n);
+  fx.readSpectrum(vizData);
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const g = canvas.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff5a5f';
+  const gap = 3;
+  const bw = (w - gap * (VIZ_BARS - 1)) / VIZ_BARS;
+  // 低音から高音まで、耳の感じ方に近い対数の間隔でバーに割り当てる
+  const lo = 2;
+  const hi = Math.min(n - 1, Math.floor(n * 0.7));
+  for (let i = 0; i < VIZ_BARS; i++) {
+    const a = Math.floor(lo * Math.pow(hi / lo, i / VIZ_BARS));
+    const b = Math.max(a + 1, Math.floor(lo * Math.pow(hi / lo, (i + 1) / VIZ_BARS)));
+    let m = 0;
+    for (let k = a; k < b; k++) m = Math.max(m, vizData[k]);
+    const v = Math.pow(m / 255, 1.6);
+    const bh = Math.max(2, v * h);
+    g.globalAlpha = 0.35 + 0.65 * v;
+    g.fillStyle = accent;
+    g.beginPath();
+    const x = i * (bw + gap);
+    if (g.roundRect) g.roundRect(x, h - bh, bw, bh, Math.min(3, bw / 2));
+    else g.rect(x, h - bh, bw, bh);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  vizRaf = requestAnimationFrame(drawViz);
+}
+
+function startViz() {
+  if (!vizRaf) vizRaf = requestAnimationFrame(drawViz);
 }
 
 // ---------- 再生画面 ----------
@@ -522,6 +612,7 @@ function openNow() {
   $('#nowPlaying').classList.add('open');
   $('#nowPlaying').setAttribute('aria-hidden', 'false');
   renderQueue();
+  startViz();
   setTimeout(placeYtDock, 300);
 }
 
@@ -623,6 +714,8 @@ function bind() {
   player.on('change', () => { renderNow(); renderQueue(); saveSession(); });
   player.on('queue', () => { renderControls(); renderQueue(); saveSession(); });
   player.on('state', renderControls);
+  player.on('change', startViz);
+  fx.onChange(startViz);
   player.on('error', toast);
   player.on('analyzed', (t) => saveTrackMeta(t));
   player.on('yt-visible', (v) => { ytVisible = v; placeYtDock(); });
