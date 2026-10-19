@@ -459,6 +459,9 @@ function placeYtDock() {
 // ---------- サウンド設定 ----------
 function renderSound() {
   const s = fx.settings;
+  $('#fxVolume').value = s.volume;
+  $('#fxVolumeVal').textContent = `${s.volume}%`;
+  $('#npVolume').value = s.volume;
   $('#fxCrossfade').value = s.crossfade;
   $('#fxCrossfadeVal').textContent = s.crossfade ? `${s.crossfade}秒` : 'オフ';
   $('#fxTrim').checked = s.trimSilence;
@@ -481,7 +484,7 @@ function renderSound() {
   $('#fxSpatialHelp').textContent = {
     off: '立体音響を使いません。',
     '8d': '音が頭のまわりをゆっくり回るように聞こえます。',
-    surround: '正面に置いた左右のスピーカーで聴いているように聞こえます。耳が疲れにくくなります。',
+    surround: '部屋に置いたスピーカーで聴いているように、音が頭の外から聞こえます。耳が疲れにくくなります。',
   }[s.spatial] || '';
   $('#fxVocal').value = s.vocal;
   $('#fxVocalVal').textContent = `${s.vocal}%`;
@@ -534,6 +537,8 @@ function renderSound() {
 function bindSound() {
   const num = (id, key) => $(id).addEventListener('input', (e) => { fx.update({ [key]: Number(e.target.value) }); renderSound(); });
   const flag = (id, key) => $(id).addEventListener('change', (e) => { fx.update({ [key]: e.target.checked }); renderSound(); });
+  num('#fxVolume', 'volume');
+  num('#npVolume', 'volume');
   num('#fxCrossfade', 'crossfade');
   num('#fxReverb', 'reverb');
   num('#fxSpeed', 'speed');
@@ -803,6 +808,7 @@ function bind() {
 async function init() {
   bind();
   renderControls();
+  renderSound();
   await loadAll();
   restoreSession();
   show('library');

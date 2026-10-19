@@ -99,6 +99,18 @@
     <p class="muted small sound-note">端末の音楽ファイルに効きます。YouTubeの曲は公式プレイヤーの音声に手を加えられないため、再生速度だけが反映されます。</p>
 
     <div class="card">
+      <h2>音量</h2>
+      <div class="setting">
+        <div class="setting-head">
+          <label for="fxVolume">アプリの音量</label>
+          <output id="fxVolumeVal" for="fxVolume"></output>
+        </div>
+        <input id="fxVolume" type="range" min="0" max="100" step="1">
+        <p class="muted small">スマホ本体の音量とは別に、このアプリの音量を調整します。再生画面からも変えられます。</p>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>曲のつなぎ方</h2>
       <div class="setting">
         <div class="setting-head">
@@ -164,9 +176,9 @@
       <h2>ボーカルと伴奏</h2>
       <div id="fxVocalPresets" class="chips">
         <button type="button" class="chip" data-vocal="100" data-inst="100">そのまま</button>
-        <button type="button" class="chip" data-vocal="15" data-inst="100">カラオケ</button>
-        <button type="button" class="chip" data-vocal="160" data-inst="70">ボーカル強調</button>
-        <button type="button" class="chip" data-vocal="150" data-inst="20">ボーカルだけ</button>
+        <button type="button" class="chip" data-vocal="20" data-inst="100">カラオケ</button>
+        <button type="button" class="chip" data-vocal="140" data-inst="85">ボーカル強調</button>
+        <button type="button" class="chip" data-vocal="130" data-inst="30">ボーカルだけ</button>
       </div>
       <div class="setting">
         <div class="setting-head">
@@ -286,6 +298,11 @@
       <svg viewBox="0 0 24 24"><path d="M4 11V9a3 3 0 013-3h12l-3-3M20 13v2a3 3 0 01-3 3H5l3 3"/></svg>
       <span id="repeatOne" class="badge hidden">1</span>
     </button>
+  </div>
+  <div class="np-volume">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/></svg>
+    <input id="npVolume" type="range" min="0" max="100" step="1" aria-label="音量">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12"/></svg>
   </div>
   <div id="queuePanel" class="queue hidden">
     <h3>次に再生</h3>

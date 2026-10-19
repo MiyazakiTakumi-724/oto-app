@@ -73,6 +73,7 @@ function onYtState(e) {
   else if (e.data === YT.PlayerState.ENDED) ended();
   if (e.data === YT.PlayerState.PLAYING) {
     applyYtSpeed();
+    applyVolume();
     const t = current();
     const data = yt.getVideoData?.();
     if (t && data?.title && t.titlePending) emit('yt-title', t, data.title, data.author);
@@ -132,6 +133,7 @@ function updatePositionState() {
 function userGesture() {
   if (fx.needsGraph()) fx.ensureGraph(decks);
   else fx.resume();
+  applyVolume();
   if (unlocked) return;
   unlocked = true;
   decks.forEach((d) => {
@@ -318,8 +320,17 @@ function analyzeSoon(t) {
   if (ni >= 0) analyzeTrack(state.queue[ni]);
 }
 
+// 音量: 音声処理を使っていればその最後で、使っていなければ <audio> で下げる。YouTubeは公式プレイヤーの音量を変える
+function applyVolume() {
+  const v = fx.elementVolume();
+  decks.forEach((d) => { if (d.el.volume !== v) d.el.volume = v; });
+  if (yt?.setVolume) yt.setVolume(Math.round(fx.volumeGain() * 100));
+}
+applyVolume();
+
 fx.onChange(() => {
   if (fx.needsGraph()) fx.ensureGraph(decks);
+  applyVolume();
   if (current()?.type === 'youtube') applyYtSpeed();
   decks.forEach((d) => { d.el.playbackRate = fx.settings.speed; });
   const t = current();
