@@ -1,5 +1,5 @@
 // アプリ本体をキャッシュしてオフラインでも起動できるようにする(音声データは IndexedDB 側)
-const CACHE = 'oto-v5';
+const CACHE = 'oto-v6';
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/player.js', 'js/db.js', 'js/tags.js', 'js/fx.js', 'js/sync.js', 'js/config.js',
