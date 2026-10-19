@@ -26,6 +26,10 @@
 <main id="main">
   <!-- ライブラリ -->
   <section id="view-library" class="view">
+    <div id="syncBanner" class="sync-banner hidden">
+      <span>同期を続けるには、Googleにログインし直してください。</span>
+      <button id="syncBannerBtn" class="pill primary" type="button">ログイン</button>
+    </div>
     <div class="search">
       <input id="searchInput" type="search" placeholder="曲名・アーティストで検索" autocomplete="off">
     </div>
@@ -58,8 +62,17 @@
   <!-- 追加 -->
   <section id="view-add" class="view hidden">
     <div class="card">
+      <h2>Googleドライブで同期</h2>
+      <p id="syncStatus" class="muted sync-status"></p>
+      <div class="sync-actions">
+        <button id="syncLoginBtn" class="pill wide primary" type="button">Googleでログインして同期</button>
+        <button id="syncNowBtn" class="pill" type="button">今すぐ同期</button>
+        <button id="syncLogoutBtn" class="pill" type="button">同期をやめる</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>端末の音楽ファイル</h2>
-      <p class="muted">MP3・M4A・AACなど。曲名やジャケットはファイルの情報から読み取ります。データはこの端末の中だけに保存されます。</p>
+      <p class="muted">MP3・M4A・AACなど。曲名やジャケットはファイルの情報から読み取ります。同期をオンにすると、自分のGoogleドライブにも保存されます。</p>
       <label class="pill wide file-label">
         ファイルを選ぶ
         <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac,.opus" multiple hidden>

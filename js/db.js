@@ -45,19 +45,49 @@ export async function getAllTracks() {
   return run(['tracks'], 'readonly', (tx) => req2p(tx.objectStore('tracks').getAll()));
 }
 
-export async function putTrack(track, blob) {
-  return run(['tracks', 'blobs'], 'readwrite', (tx) => {
+// 変更の通知(同期のきっかけに使う)。touch=false の書き込みは通知しない
+let onWrite = null;
+export const setWriteListener = (fn) => { onWrite = fn; };
+const notify = () => onWrite?.();
+
+// 削除した曲・プレイリストの記録。別の端末に削除を伝えるために使う
+const DELETED_KEY = 'oto.deleted';
+export function getDeleted() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DELETED_KEY) || '{}');
+    return { tracks: d.tracks || {}, playlists: d.playlists || {} };
+  } catch {
+    return { tracks: {}, playlists: {} };
+  }
+}
+export function setDeleted(d) {
+  try { localStorage.setItem(DELETED_KEY, JSON.stringify(d)); } catch { /* 保存できなくても続ける */ }
+}
+function markDeleted(kind, id) {
+  const d = getDeleted();
+  d[kind][id] = Date.now();
+  setDeleted(d);
+}
+
+export async function putTrack(track, blob, { touch = true } = {}) {
+  if (touch) track.updatedAt = Date.now();
+  await run(['tracks', 'blobs'], 'readwrite', (tx) => {
     tx.objectStore('tracks').put(track);
     if (blob) tx.objectStore('blobs').put(blob, track.id);
   });
+  if (touch) notify();
 }
 
 export async function getBlob(id) {
   return run(['blobs'], 'readonly', (tx) => req2p(tx.objectStore('blobs').get(id)));
 }
 
-export async function deleteTrack(id) {
-  return run(['tracks', 'blobs', 'playlists'], 'readwrite', async (tx) => {
+export async function hasBlob(id) {
+  return run(['blobs'], 'readonly', (tx) => req2p(tx.objectStore('blobs').getKey(id))).then((k) => k !== undefined);
+}
+
+export async function deleteTrack(id, { touch = true } = {}) {
+  await run(['tracks', 'blobs', 'playlists'], 'readwrite', async (tx) => {
     tx.objectStore('tracks').delete(id);
     tx.objectStore('blobs').delete(id);
     const pls = tx.objectStore('playlists');
@@ -65,20 +95,25 @@ export async function deleteTrack(id) {
     for (const pl of all) {
       if (pl.trackIds.includes(id)) {
         pl.trackIds = pl.trackIds.filter((t) => t !== id);
+        if (touch) pl.updatedAt = Date.now();
         pls.put(pl);
       }
     }
   });
+  if (touch) { markDeleted('tracks', id); notify(); }
 }
 
 export async function getAllPlaylists() {
   return run(['playlists'], 'readonly', (tx) => req2p(tx.objectStore('playlists').getAll()));
 }
 
-export async function putPlaylist(pl) {
-  return run(['playlists'], 'readwrite', (tx) => { tx.objectStore('playlists').put(pl); });
+export async function putPlaylist(pl, { touch = true } = {}) {
+  if (touch) pl.updatedAt = Date.now();
+  await run(['playlists'], 'readwrite', (tx) => { tx.objectStore('playlists').put(pl); });
+  if (touch) notify();
 }
 
-export async function deletePlaylist(id) {
-  return run(['playlists'], 'readwrite', (tx) => { tx.objectStore('playlists').delete(id); });
+export async function deletePlaylist(id, { touch = true } = {}) {
+  await run(['playlists'], 'readwrite', (tx) => { tx.objectStore('playlists').delete(id); });
+  if (touch) { markDeleted('playlists', id); notify(); }
 }

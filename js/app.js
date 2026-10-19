@@ -2,6 +2,7 @@ import * as db from './db.js';
 import * as player from './player.js';
 import { readTags } from './tags.js';
 import * as fx from './fx.js';
+import * as sync from './sync.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -223,7 +224,7 @@ function show(v) {
   $('#backBtn').classList.toggle('hidden', v !== 'playlist');
   if (TITLES[v]) $('#viewTitle').textContent = TITLES[v];
   window.scrollTo(0, 0);
-  if (v === 'add') updateStorageInfo();
+  if (v === 'add') { updateStorageInfo(); renderSync(); }
   if (v === 'sound') renderSound();
   rerender();
 }
@@ -311,9 +312,10 @@ async function editTrack(t) {
   player.refreshMeta();
 }
 
-async function saveTrackMeta(t) {
+async function saveTrackMeta(t, { touch = true } = {}) {
   const { artUrl, ...rec } = t;
-  await db.putTrack(rec);
+  await db.putTrack(rec, null, { touch });
+  t.updatedAt = rec.updatedAt;
 }
 
 async function removeTrack(t) {
@@ -364,6 +366,7 @@ async function importFiles(files) {
       const track = {
         id: db.uid(), type: 'file', title: tags.title, artist: tags.artist, album: tags.album,
         picture: tags.picture, duration: tags.duration, size: file.size, addedAt: Date.now() + i,
+        fileName: file.name, mime: file.type,
       };
       await db.putTrack(track, file);
       ok++;
@@ -607,6 +610,63 @@ function startViz() {
   if (!vizRaf) vizRaf = requestAnimationFrame(drawViz);
 }
 
+// ---------- Googleドライブ同期 ----------
+function timeAgo(ms) {
+  const sec = Math.round((Date.now() - ms) / 1000);
+  if (sec < 60) return 'たった今';
+  if (sec < 3600) return `${Math.floor(sec / 60)}分前`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}時間前`;
+  return new Date(ms).toLocaleDateString('ja-JP');
+}
+
+function renderSync() {
+  const st = sync.state;
+  const status = $('#syncStatus');
+  const on = sync.configured();
+  $('#syncLoginBtn').classList.toggle('hidden', !on || (st.enabled && !st.needsLogin));
+  $('#syncLoginBtn').textContent = st.enabled ? 'Googleにログインし直す' : 'Googleでログインして同期';
+  $('#syncNowBtn').classList.toggle('hidden', !on || !st.enabled || st.needsLogin);
+  $('#syncNowBtn').disabled = st.busy;
+  $('#syncLogoutBtn').classList.toggle('hidden', !on || !st.enabled);
+  let text;
+  if (!on) text = '同期機能は準備中です。';
+  else if (!st.enabled) text = 'ログインすると、曲とプレイリストが自分のGoogleドライブの「Oto」フォルダに保存され、同じアカウントでログインした端末どうしで同期されます。';
+  else if (st.busy) text = st.progress || '同期中…';
+  else if (st.needsLogin) text = 'ログインの有効期限が切れました。同期を続けるにはログインし直してください。';
+  else if (st.error) text = st.error;
+  else text = `${st.email ? `${st.email} ・ ` : ''}${st.lastSync ? `最終同期 ${timeAgo(st.lastSync)}` : 'まだ同期していません'}`;
+  status.textContent = text;
+  status.classList.toggle('error', !!st.error && !st.busy);
+  $('#syncBanner').classList.toggle('hidden', !(on && st.enabled && st.needsLogin));
+}
+
+function startSignIn() {
+  sync.signIn().catch((e) => toast(e.message));
+  renderSync();
+}
+
+function bindSync() {
+  $('#syncLoginBtn').onclick = startSignIn;
+  $('#syncBannerBtn').onclick = startSignIn;
+  $('#syncNowBtn').onclick = () => sync.sync();
+  $('#syncLogoutBtn').onclick = async () => {
+    if (!(await confirmDanger('Googleドライブとの同期をやめますか?この端末の曲とドライブの曲はどちらも残ります。', '同期をやめる'))) return;
+    sync.signOut();
+  };
+  sync.onChange(renderSync);
+  sync.onSynced(async () => {
+    await loadAll();
+    rerender();
+    if (view === 'add') updateStorageInfo();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') sync.schedule(1000);
+  });
+  sync.preload();
+  renderSync();
+  setInterval(() => { if (view === 'add') renderSync(); }, 30000);
+}
+
 // ---------- 再生画面 ----------
 function openNow() {
   $('#nowPlaying').classList.add('open');
@@ -655,6 +715,7 @@ function restoreSession() {
 // ---------- イベント ----------
 function bind() {
   bindSound();
+  bindSync();
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
   $('#backBtn').onclick = () => switchTab('playlists');
   $('#searchInput').addEventListener('input', renderLibrary);
@@ -717,7 +778,7 @@ function bind() {
   player.on('change', startViz);
   fx.onChange(startViz);
   player.on('error', toast);
-  player.on('analyzed', (t) => saveTrackMeta(t));
+  player.on('analyzed', (t) => saveTrackMeta(t, { touch: false }));
   player.on('yt-visible', (v) => { ytVisible = v; placeYtDock(); });
   player.on('yt-title', async (t, title, author) => {
     t.title = title;
@@ -745,6 +806,7 @@ async function init() {
   await loadAll();
   restoreSession();
   show('library');
+  sync.schedule(500);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
