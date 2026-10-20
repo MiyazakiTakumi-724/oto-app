@@ -1,5 +1,5 @@
 // アプリ本体をキャッシュしてオフラインでも起動できるようにする(音声データは IndexedDB 側)
-const CACHE = 'oto-v27';
+const CACHE = 'oto-v28'; // js/app.js の APP_VERSION と合わせる
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/player.js', 'js/db.js', 'js/tags.js', 'js/fx.js', 'js/sync.js', 'js/config.js',
@@ -7,7 +7,8 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // ブラウザのキャッシュを通さず、公開中の最新ファイルを取り込む
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -19,11 +20,15 @@ self.addEventListener('activate', (e) => {
 });
 
 // 同じサイトのファイルは「ネット優先・失敗したらキャッシュ」。更新がすぐ反映され、圏外でも開ける
+// GitHub Pages はファイルをブラウザに10分ほど覚えさせるので、毎回サーバーに新しいか確かめる(no-cache)
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  const req = e.request.mode === 'navigate'
+    ? new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' })
+    : new Request(e.request, { cache: 'no-cache' });
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
