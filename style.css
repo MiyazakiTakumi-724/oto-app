@@ -345,6 +345,11 @@ main {
 .marquee-track > span { padding-right: 48px; }
 @keyframes marquee { 0%, 20% { transform: none; } 100% { transform: translateX(var(--dist)); } }
 
+/* タブを左右スワイプ: 隣のタブを横に並べて指と一緒に動かす */
+main { position: relative; overflow-x: clip; }
+.view.peer { position: absolute; }
+.view.peer, .view.swiped { animation: none; }
+
 /* 動きを減らす設定の端末では止める */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

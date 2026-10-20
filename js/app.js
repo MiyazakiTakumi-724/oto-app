@@ -325,35 +325,45 @@ function renderControls() {
   $('#repeatOne').classList.toggle('hidden', repeat !== 'one');
 }
 
+function renderView(v) {
+  if (v === 'library') renderLibrary();
+  else if (v === 'playlists') renderPlaylists();
+  else if (v === 'playlist') renderPlaylist();
+  else if (v === 'sound') renderSound();
+  else if (v === 'add') { updateStorageInfo(); renderSync(); }
+}
+
 function rerender() {
-  if (view === 'library') renderLibrary();
-  else if (view === 'playlists') renderPlaylists();
-  else if (view === 'playlist') renderPlaylist();
+  if (view === 'library' || view === 'playlists' || view === 'playlist') renderView(view);
   renderNow();
 }
 
 // ---------- 画面切り替え ----------
 const TITLES = { library: 'ライブラリ', playlists: 'プレイリスト', sound: 'サウンド', add: '追加' };
 
-function show(v) {
+function show(v, { swiped = false } = {}) {
   view = v;
   document.querySelectorAll('.view').forEach((el) => el.classList.add('hidden'));
-  $(`#view-${v}`).classList.remove('hidden');
+  const el = $(`#view-${v}`);
+  // スワイプで来たときは、もう横から入ってきているので、下からの登場はしない
+  if (!swiped) el.classList.remove('swiped');
+  el.classList.remove('hidden');
   $('#backBtn').classList.toggle('hidden', v !== 'playlist');
   if (TITLES[v]) $('#viewTitle').textContent = TITLES[v];
   window.scrollTo(0, 0);
+  if (swiped) { renderNow(); return; }
   if (v === 'add') { updateStorageInfo(); renderSync(); }
   if (v === 'sound') renderSound();
   rerender();
   if (v === 'library') staggerIn($('#libraryList').children);
   else if (v === 'playlists') staggerIn($('#playlistList').children);
   else if (v === 'playlist') staggerIn($('#playlistTracks').children);
-  else staggerIn($(`#view-${v}`).querySelectorAll(':scope > .card'));
+  else staggerIn(el.querySelectorAll(':scope > .card'));
 }
 
-function switchTab(tab) {
+function switchTab(tab, opts) {
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-  show(tab);
+  show(tab, opts);
 }
 
 function openPlaylist(id) {
@@ -922,26 +932,35 @@ function slideEls(els, dx, fade = 300) {
   });
 }
 
-// 指を離したとき: 足りなければバネで戻し、十分なら外へ流してから反対側から入れる
+// 指を離した勢いを保ったまま流すための長さ(ms)。速く払うほど短い
+const FLING_EASE = 'cubic-bezier(.2, .65, .3, 1)';
+function flingDuration(remaining, v) {
+  const speed = Math.max(Math.abs(v), 0.6);
+  return Math.min(380, Math.max(180, (2.6 * Math.abs(remaining)) / speed));
+}
+
+// 指を離したとき: 足りなければバネで戻し、十分なら払った向きへそのまま流し、次の曲を反対側から入れる
 function finishSlide(els, g, width, action) {
   const from = els.map((el) => ({ transform: el.style.transform || 'none', opacity: el.style.opacity || '1' }));
   els.forEach((el) => { el.style.transform = ''; el.style.opacity = ''; });
-  const go = Math.abs(g.dx) > 80 || Math.abs(g.vx) > 0.5;
+  const go = Math.abs(g.dx) > 80 || (Math.abs(g.vx) > 0.4 && Math.sign(g.vx) === Math.sign(g.dx));
   if (!go) {
     els.forEach((el, i) => el.animate([from[i], { transform: 'none', opacity: 1 }], { duration: 420, easing: SPRING }));
     return;
   }
   const dir = Math.sign(g.dx);
+  const duration = flingDuration(width - Math.abs(g.dx), g.vx);
   trackSwiping = true;
-  const outs = els.map((el, i) => el.animate([from[i], { transform: `translateX(${dir * width * 0.6}px)`, opacity: 0 }],
-    { duration: 160, easing: 'ease-in', fill: 'forwards' }));
-  Promise.all(outs.map((a) => a.finished.catch(() => {}))).then(() => {
+  const outs = els.map((el, i) => el.animate([from[i], { transform: `translateX(${dir * width}px)`, opacity: 0 }],
+    { duration, easing: FLING_EASE, fill: 'forwards' }));
+  // 出ていく途中で次の曲を反対側から追いかけるように入れる
+  setTimeout(() => {
     action();
     outs.forEach((a) => a.cancel());
-    els.forEach((el) => el.animate([{ transform: `translateX(${-dir * width * 0.4}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
+    els.forEach((el) => el.animate([{ transform: `translateX(${-dir * width * 0.5}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
       { duration: 420, easing: EASE_OUT }));
     setTimeout(() => { trackSwiping = false; }, 100);
-  });
+  }, duration * 0.6);
 }
 
 // 再生画面: 下に引くと閉じる(指に追従してバネで戻る)、右にスワイプで次の曲、左で前の曲
@@ -1000,7 +1019,7 @@ function bindMiniGestures() {
   });
 }
 
-// 画面を左右にスワイプしてタブを切り替える(左で右隣のタブへ)
+// 画面を左右にスワイプしてタブを切り替える(左で右隣のタブへ)。隣のタブが指と一緒に横から見えてくる
 const TAB_ORDER = ['library', 'playlists', 'sound', 'add'];
 function neighborTab(dx) {
   if (view === 'playlist' && dx > 0) return 'playlists';
@@ -1008,31 +1027,64 @@ function neighborTab(dx) {
   return TAB_ORDER[i + (dx < 0 ? 1 : -1)] || null;
 }
 
+// 隣のタブを今の画面の横に並べる(今のスクロール位置に合わせて、切り替えたあと位置がずれないように)
+function placePeer(name) {
+  const cur = $(`#view-${view}`);
+  const el = $(`#view-${name}`);
+  renderView(name);
+  el.classList.add('peer', 'swiped');
+  el.classList.remove('hidden');
+  Object.assign(el.style, { top: `${cur.offsetTop + window.scrollY}px`, left: `${cur.offsetLeft}px`, width: `${cur.offsetWidth}px` });
+  return el;
+}
+
+function clearPeer(el) {
+  el.classList.remove('peer');
+  Object.assign(el.style, { top: '', left: '', width: '', transform: '' });
+}
+
 function bindTabSwipe() {
   const cur = () => $(`#view-${view}`);
+  const W = () => window.innerWidth;
   // 曲が少なくて画面の下が空いていても効くように、画面全体で受ける
   bindSwipe(document.body, {
     canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock'),
     onLock: (g) => (g.axis === 'x' ? undefined : false),
     onMove: (g) => {
+      const name = neighborTab(g.dx);
+      if (g.peerName !== name) {
+        if (g.peer) { clearPeer(g.peer); g.peer.classList.add('hidden'); }
+        g.peerName = name;
+        g.peer = name ? placePeer(name) : null;
+      }
       // 隣のタブがない方向へは重たく少しだけ動く
-      if (neighborTab(g.dx)) slideEls([cur()], g.dx, 500);
-      else slideEls([cur()], g.dx * 0.25, 1e9);
+      const dx = name ? g.dx : g.dx * 0.25;
+      cur().style.transform = `translateX(${dx}px)`;
+      if (g.peer) g.peer.style.transform = `translateX(${dx + (g.dx < 0 ? W() : -W())}px)`;
     },
     onEnd: (g) => {
       const el = cur();
-      const next = neighborTab(g.dx);
-      const from = { transform: el.style.transform || 'none', opacity: el.style.opacity || '1' };
+      const peer = g.peer;
+      const fromCur = el.style.transform || 'none';
       el.style.transform = '';
-      el.style.opacity = '';
-      if (!next || !(Math.abs(g.dx) > 70 || Math.abs(g.vx) > 0.5)) {
-        el.animate([from, { transform: 'none', opacity: 1 }], { duration: 420, easing: SPRING });
+      if (!peer) { el.animate([{ transform: fromCur }, { transform: 'none' }], { duration: 420, easing: SPRING }); return; }
+      const fromPeer = peer.style.transform;
+      const side = g.dx < 0 ? W() : -W();
+      const go = Math.abs(g.dx) > W() * 0.25 || (Math.abs(g.vx) > 0.4 && Math.sign(g.vx) === Math.sign(g.dx));
+      if (!go) {
+        const opt = { duration: 320, easing: EASE_OUT };
+        el.animate([{ transform: fromCur }, { transform: 'none' }], opt);
+        peer.animate([{ transform: fromPeer }, { transform: `translateX(${side}px)` }], { ...opt, fill: 'forwards' })
+          .finished.then((a) => { a.cancel(); clearPeer(peer); peer.classList.add('hidden'); });
         return;
       }
-      const dir = Math.sign(g.dx);
-      el.animate([from, { transform: `translateX(${dir * 90}px)`, opacity: 0 }], { duration: 140, easing: 'ease-in' }).finished.then(() => {
-        switchTab(next);
-        cur().animate([{ transform: `translateX(${-dir * 60}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: EASE_OUT });
+      const opt = { duration: flingDuration(W() - Math.abs(g.dx), g.vx), easing: FLING_EASE, fill: 'forwards' };
+      el.animate([{ transform: fromCur }, { transform: `translateX(${-side}px)` }], opt);
+      peer.animate([{ transform: fromPeer }, { transform: 'none' }], opt).finished.then(() => {
+        clearPeer(peer);
+        switchTab(g.peerName, { swiped: true });
+        el.getAnimations().forEach((a) => a.cancel());
+        peer.getAnimations().forEach((a) => a.cancel());
       });
     },
   });
