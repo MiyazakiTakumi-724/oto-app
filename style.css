@@ -293,6 +293,9 @@ main {
 /* タブを選んだとき */
 .tabbar button.active svg { animation: tab-pop .45s var(--ease-spring); }
 .tabbar.swiped button.active svg { animation: none; }
+/* スワイプ中は色を指に追従させ、離したあとはスワイプと同じ長さでフェード */
+.tabbar button { transition: transform .2s var(--ease-out), color var(--tab-fade, .25s) ease; }
+.tabbar.dragging button { transition: transform .2s var(--ease-out); }
 @keyframes tab-pop { from { transform: scale(.7) translateY(3px); } }
 
 /* スイッチはバネのように */

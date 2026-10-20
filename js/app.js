@@ -366,6 +366,7 @@ function show(v, { swiped = false } = {}) {
 function switchTab(tab, opts) {
   // スワイプで来たときは、下のアイコンを弾ませず色だけ変える
   $('.tabbar').classList.toggle('swiped', !!opts?.swiped);
+  if (!opts?.swiped) $('.tabbar').style.removeProperty('--tab-fade');
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   show(tab, opts);
 }
@@ -1056,6 +1057,27 @@ function fadeTitle(g, p) {
   t.style.opacity = String(Math.abs(1 - 2 * p));
 }
 
+// 下のタブの色も、指の進み具合に合わせて今のタブから隣のタブへ移す
+function fadeTabs(g, p) {
+  const bar = $('.tabbar');
+  bar.classList.add('dragging');
+  const cur = bar.querySelector('button.active');
+  const next = g.peerName ? bar.querySelector(`button[data-tab="${g.peerName}"]`) : null;
+  if (g.tabBtn && g.tabBtn !== next) g.tabBtn.style.color = '';
+  g.tabBtn = next;
+  const mix = (k) => `color-mix(in srgb, var(--text) ${Math.round(k * 100)}%, var(--muted))`;
+  cur.style.color = mix(1 - p);
+  if (next) next.style.color = mix(p);
+}
+
+// 指を離したら、色の切り替えは CSS の transition に任せる(スワイプの動きと同じ長さで)
+function settleTabs(duration) {
+  const bar = $('.tabbar');
+  bar.classList.remove('dragging');
+  bar.style.setProperty('--tab-fade', `${Math.round(duration)}ms`);
+  bar.querySelectorAll('button').forEach((b) => { b.style.color = ''; });
+}
+
 // 指を離したあと、見出しを最後の名前に落ち着かせる
 function settleTitle(text, duration) {
   const t = $('#viewTitle');
@@ -1091,20 +1113,27 @@ function bindTabSwipe() {
       const dx = name ? g.dx : g.dx * 0.25;
       cur().style.transform = `translateX(${dx}px)`;
       if (g.peer) g.peer.style.transform = `translateX(${dx + (g.dx < 0 ? W() : -W())}px)`;
-      fadeTitle(g, name ? Math.min(1, Math.abs(g.dx) / W()) : 0);
+      const p = name ? Math.min(1, Math.abs(g.dx) / W()) : 0;
+      fadeTitle(g, p);
+      fadeTabs(g, p);
     },
     onEnd: (g) => {
       const el = cur();
       const peer = g.peer;
       const fromCur = el.style.transform || 'none';
       el.style.transform = '';
-      if (!peer) { el.animate([{ transform: fromCur }, { transform: 'none' }], { duration: 420, easing: SPRING }); return; }
+      if (!peer) {
+        settleTabs(250);
+        el.animate([{ transform: fromCur }, { transform: 'none' }], { duration: 420, easing: SPRING });
+        return;
+      }
       const fromPeer = peer.style.transform;
       const side = g.dx < 0 ? W() : -W();
       const go = Math.abs(g.dx) > W() * 0.25 || (Math.abs(g.vx) > 0.4 && Math.sign(g.vx) === Math.sign(g.dx));
       if (!go) {
         const opt = { duration: 320, easing: EASE_OUT };
         settleTitle(g.title0, opt.duration);
+        settleTabs(opt.duration);
         el.animate([{ transform: fromCur }, { transform: 'none' }], opt);
         peer.animate([{ transform: fromPeer }, { transform: `translateX(${side}px)` }], { ...opt, fill: 'forwards' })
           .finished.then((a) => { a.cancel(); clearPeer(peer); peer.classList.add('hidden'); });
@@ -1112,6 +1141,9 @@ function bindTabSwipe() {
       }
       const opt = { duration: flingDuration(W() - Math.abs(g.dx), g.vx), easing: FLING_EASE, fill: 'forwards' };
       settleTitle(TITLES[g.peerName], opt.duration);
+      settleTabs(opt.duration);
+      $('.tabbar').classList.add('swiped');
+      document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === g.peerName));
       el.animate([{ transform: fromCur }, { transform: `translateX(${-side}px)` }], opt);
       peer.animate([{ transform: fromPeer }, { transform: 'none' }], opt).finished.then(() => {
         clearPeer(peer);
@@ -1217,7 +1249,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {
