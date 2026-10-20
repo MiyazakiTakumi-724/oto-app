@@ -73,6 +73,14 @@ main {
   font-size: 16px;
 }
 
+/* チェックボックス */
+.check-row { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; color: var(--muted); cursor: pointer; -webkit-user-select: none; user-select: none; }
+.check { appearance: none; -webkit-appearance: none; flex: none; width: 20px; height: 20px; margin: 0; border-radius: 6px; border: 2px solid var(--muted); position: relative; cursor: pointer; transition: background-color .2s, border-color .2s; }
+.check::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid var(--accent-ink); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg) scale(0); transition: transform .3s var(--ease-spring, ease); }
+.check:checked { background: var(--accent); border-color: var(--accent); }
+.check:checked::after { transform: rotate(45deg) scale(1); }
+.check-row:has(.check:checked) { color: var(--text); }
+
 /* 曲リスト */
 .track-list { list-style: none; margin: 0; padding: 0; }
 .track {

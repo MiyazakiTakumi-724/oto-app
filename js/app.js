@@ -228,8 +228,9 @@ function trackRow(t, { index, onTap, menu = true } = {}) {
 
 function filteredTracks() {
   const q = $('#searchInput').value.trim().toLowerCase();
-  if (!q) return tracks;
-  return tracks.filter((t) => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q));
+  const hideYt = $('#hideYoutube').checked;
+  return tracks.filter((t) => !(hideYt && t.type === 'youtube') &&
+    (!q || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q)));
 }
 
 function renderLibrary() {
@@ -237,6 +238,7 @@ function renderLibrary() {
   const items = filteredTracks();
   list.innerHTML = '';
   items.forEach((t, i) => list.appendChild(trackRow(t, { index: i, onTap: (idx) => player.playList(items, idx) })));
+  if (tracks.length && !items.length) list.innerHTML = '<li class="empty small">条件に合う曲はありません</li>';
   $('#libraryEmpty').classList.toggle('hidden', tracks.length > 0);
 }
 
@@ -1097,6 +1099,14 @@ function bind() {
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
   $('#backBtn').onclick = () => switchTab('playlists');
   $('#searchInput').addEventListener('input', renderLibrary);
+  // YouTubeの曲を除くかどうかは次に開いたときも覚えておく
+  const hideYt = $('#hideYoutube');
+  try { hideYt.checked = localStorage.getItem('oto.hideYoutube') === '1'; } catch { /* 無視 */ }
+  hideYt.addEventListener('change', () => {
+    try { localStorage.setItem('oto.hideYoutube', hideYt.checked ? '1' : '0'); } catch { /* 無視 */ }
+    renderLibrary();
+    staggerIn($('#libraryList').children);
+  });
   $('#playAllBtn').onclick = () => player.playList(filteredTracks(), 0, { shuffle: false });
   $('#shuffleAllBtn').onclick = () => player.playList(filteredTracks(), -1, { shuffle: true });
   $('#newPlaylistBtn').onclick = async () => { const pl = await createPlaylist(); if (pl) renderPlaylists(); };
