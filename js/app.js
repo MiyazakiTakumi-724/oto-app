@@ -30,13 +30,45 @@ function fmt(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// ---------- アニメーション ----------
+// 動きを減らす設定の端末では、アニメーションをしない
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const EASE_OUT = 'cubic-bezier(.22, 1, .36, 1)';
+
+function showEl(el) {
+  clearTimeout(el._closeTimer);
+  el.classList.remove('closing', 'hidden');
+}
+
+// 閉じるアニメーション(CSS の .closing)が終わってから隠す
+function hideAnimated(el) {
+  if (el.classList.contains('hidden') || el.classList.contains('closing')) return;
+  if (REDUCED) { el.classList.add('hidden'); return; }
+  el.classList.add('closing');
+  el._closeTimer = setTimeout(() => { el.classList.add('hidden'); el.classList.remove('closing'); }, 200);
+}
+
+// 一覧の項目を少しずつずらして浮かび上がらせる(画面に入る最初の数件だけ)
+function staggerIn(items) {
+  if (REDUCED) return;
+  const els = [...items].slice(0, 14);
+  els.forEach((el, i) => { el.style.setProperty('--i', i); el.classList.add('enter'); });
+  setTimeout(() => els.forEach((el) => el.classList.remove('enter')), 1000);
+}
+
+// ジャケットが変わったときに、ふわっと切り替える
+function popIn(el) {
+  if (REDUCED || !el.animate) return;
+  el.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: EASE_OUT });
+}
+
 let toastTimer;
 function toast(msg) {
   const el = $('#toast');
   el.textContent = msg;
-  el.classList.remove('hidden');
+  showEl(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 2600);
+  toastTimer = setTimeout(() => hideAnimated(el), 2600);
 }
 
 function withArt(t) {
@@ -57,10 +89,10 @@ function actionSheet(title, items) {
     b.onclick = () => { close(); it.run(); };
     box.appendChild(b);
   });
-  const close = () => sheet.classList.add('hidden');
+  const close = () => hideAnimated(sheet);
   sheet.querySelector('.action-backdrop').onclick = close;
   sheet.querySelector('[data-cancel]').onclick = close;
-  sheet.classList.remove('hidden');
+  showEl(sheet);
 }
 
 // ブラウザ標準の prompt/confirm の代わりに使う画面内ダイアログ
@@ -84,12 +116,12 @@ function dialog({ title, fields = [], ok = 'OK', danger = false }) {
     const okBtn = $('#dialogOk');
     okBtn.textContent = ok;
     okBtn.classList.toggle('danger', danger);
-    const finish = (v) => { box.classList.add('hidden'); resolve(v); };
+    const finish = (v) => { hideAnimated(box); resolve(v); };
     okBtn.onclick = () => finish(inputs.map((x) => x.value));
     $('#dialogCancel').onclick = () => finish(null);
     box.querySelector('.action-backdrop').onclick = () => finish(null);
     $('#dialogForm').onsubmit = (e) => { e.preventDefault(); okBtn.click(); };
-    box.classList.remove('hidden');
+    showEl(box);
     inputs[0]?.focus();
     inputs[0]?.select();
   });
@@ -185,6 +217,8 @@ function renderQueue() {
   if (!list.children.length) list.innerHTML = '<li class="empty small">次の曲はありません</li>';
 }
 
+let shownTrackId = null;
+
 function renderNow() {
   const t = player.current();
   $('#miniPlayer').classList.toggle('hidden', !t);
@@ -196,6 +230,11 @@ function renderNow() {
   $('#npTitle').textContent = t.title;
   $('#npArtist').textContent = t.artist || '';
   $('#npArt').src = t.artUrl || ICON_NOTE;
+  if (shownTrackId && shownTrackId !== t.id) {
+    popIn($('#miniArt'));
+    if ($('#nowPlaying').classList.contains('open')) popIn($('#npArt'));
+  }
+  shownTrackId = t.id;
   $('#artWrap').classList.toggle('video', t.type === 'youtube');
   $('#npArt').classList.toggle('hidden', t.type === 'youtube');
   placeYtDock();
@@ -203,8 +242,13 @@ function renderNow() {
 
 function renderControls() {
   const { shuffle, repeat, playing } = player.state;
-  $('#playBtn').innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
-  $('#miniPlayBtn').innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+  // 再生/一時停止が変わったときだけアイコンを差し替える(差し替えたアイコンはCSSでポンと弾む)
+  ['#playBtn', '#miniPlayBtn'].forEach((sel) => {
+    const b = $(sel);
+    if (b.dataset.playing === String(playing)) return;
+    b.dataset.playing = String(playing);
+    b.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+  });
   $('#shuffleBtn').classList.toggle('on', shuffle);
   $('#repeatBtn').classList.toggle('on', repeat !== 'off');
   $('#repeatOne').classList.toggle('hidden', repeat !== 'one');
@@ -230,6 +274,10 @@ function show(v) {
   if (v === 'add') { updateStorageInfo(); renderSync(); }
   if (v === 'sound') renderSound();
   rerender();
+  if (v === 'library') staggerIn($('#libraryList').children);
+  else if (v === 'playlists') staggerIn($('#playlistList').children);
+  else if (v === 'playlist') staggerIn($('#playlistTracks').children);
+  else staggerIn($(`#view-${v}`).querySelectorAll(':scope > .card'));
 }
 
 function switchTab(tab) {
@@ -681,7 +729,7 @@ function openNow() {
   $('#nowPlaying').setAttribute('aria-hidden', 'false');
   renderQueue();
   startViz();
-  setTimeout(placeYtDock, 300);
+  setTimeout(placeYtDock, 450);
 }
 
 function closeNow() {
@@ -799,7 +847,7 @@ function bind() {
   player.on('time', (cur, dur) => {
     lastDur = dur;
     const pct = dur ? (cur / dur) * 100 : 0;
-    $('#miniProgressBar').style.width = pct + '%';
+    $('#miniProgressBar').style.transform = `scaleX(${pct / 100})`;
     if (!seeking) {
       $('#seekBar').value = dur ? Math.round((cur / dur) * 1000) : 0;
       $('#curTime').textContent = fmt(cur);

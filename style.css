@@ -151,7 +151,7 @@ main {
 .mini-text { flex: 1; min-width: 0; }
 .mini-text .title { font-size: 15px; }
 .mini-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255,255,255,.12); }
-#miniProgressBar { height: 100%; width: 0; background: var(--text); }
+#miniProgressBar { height: 100%; width: 100%; background: var(--text); transform: scaleX(0); transform-origin: left; transition: transform .3s linear; }
 
 /* 再生画面 */
 .sheet {
@@ -159,7 +159,7 @@ main {
   background: linear-gradient(180deg, #2b2b30 0%, var(--bg) 60%);
   padding: calc(var(--safe-t) + 8px) 24px calc(var(--safe-b) + 24px);
   display: flex; flex-direction: column;
-  transform: translateY(100%); transition: transform .28s ease;
+  transform: translateY(100%); transition: transform .42s var(--ease-out);
   overflow-y: auto;
 }
 .sheet.open { transform: none; }
@@ -253,3 +253,76 @@ main {
 .sync-banner { display: flex; align-items: center; gap: 10px; background: var(--bg-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
 .sync-banner span { flex: 1; min-width: 0; }
 .link { color: var(--muted); }
+
+/* ---------- アニメーション ----------
+   動かすのは transform と opacity だけ(画面の描き直しが起きず、スマホでも軽い) */
+:root { --ease-out: cubic-bezier(.22, 1, .36, 1); --ease-spring: cubic-bezier(.34, 1.56, .64, 1); }
+
+/* 画面の切り替え */
+.view:not(.hidden) { animation: view-in .32s var(--ease-out) backwards; }
+@keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* 一覧やカードが順番に浮かび上がる */
+.enter { animation: item-in .5s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 30ms); }
+@keyframes item-in { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+
+/* 押したときに少し沈む */
+.track, .playlist-item, .pill, .chip, .icon-btn, .action-item, .segmented button, .tabbar button {
+  transition: transform .2s var(--ease-out), opacity .2s, background-color .25s, color .25s;
+}
+.track:active, .playlist-item:active { transform: scale(.98); opacity: .7; }
+.pill:active { transform: scale(.96); }
+.chip:active, .segmented button:active { transform: scale(.93); }
+.icon-btn:active { transform: scale(.86); }
+.tabbar button:active { transform: scale(.9); }
+.play-btn { transition: transform .25s var(--ease-spring); }
+.play-btn:active { transform: scale(.9); }
+
+/* 再生/一時停止のアイコンが弾む */
+.play-btn svg, #miniPlayBtn svg { animation: icon-pop .4s var(--ease-spring); }
+@keyframes icon-pop { from { transform: scale(.6); opacity: .4; } }
+
+/* タブを選んだとき */
+.tabbar button.active svg { animation: tab-pop .45s var(--ease-spring); }
+@keyframes tab-pop { from { transform: scale(.7) translateY(3px); } }
+
+/* スイッチはバネのように */
+.switch { transition: background-color .25s; }
+.switch::after { transition: transform .35s var(--ease-spring); }
+
+/* 再生画面: 開くとジャケットが少し遅れて大きくなる */
+.sheet .art-lg { transform: scale(.9); opacity: .6; transition: transform .55s var(--ease-out) .06s, opacity .4s ease .06s; }
+.sheet.open .art-lg { transform: none; opacity: 1; }
+
+/* ミニプレイヤーが下から出てくる */
+.mini:not(.hidden) { animation: mini-in .5s var(--ease-out) backwards; }
+@keyframes mini-in { from { opacity: 0; transform: translateY(24px); } }
+
+/* メニューと確認ダイアログ */
+.action-sheet:not(.hidden) .action-backdrop { animation: fade-in .25s ease backwards; }
+.action-sheet:not(.hidden) .action-panel { animation: panel-up .42s var(--ease-out) backwards; }
+.action-sheet:not(.hidden) .dialog-panel { animation: dialog-in .38s var(--ease-spring) backwards; }
+.action-sheet.closing .action-backdrop { animation: fade-out .2s ease forwards; }
+.action-sheet.closing .action-panel { animation: panel-down .2s ease-in forwards; }
+.action-sheet.closing .dialog-panel { animation: dialog-out .18s ease-in forwards; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes panel-up { from { transform: translateY(100%); } }
+@keyframes panel-down { to { transform: translateY(100%); } }
+@keyframes dialog-in { from { opacity: 0; transform: translate(-50%, -30%) scale(.9); } }
+@keyframes dialog-out { to { opacity: 0; transform: translate(-50%, -30%) scale(.95); } }
+
+/* お知らせ */
+.toast:not(.hidden) { animation: toast-in .45s var(--ease-spring) backwards; }
+.toast.closing { animation: toast-out .2s ease-in forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 16px) scale(.95); } }
+@keyframes toast-out { to { opacity: 0; transform: translate(-50%, 8px); } }
+
+/* 曲がないときのロゴがゆっくり浮かぶ */
+.empty-logo { animation: float 4.5s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-8px); } }
+
+/* 動きを減らす設定の端末では止める */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
