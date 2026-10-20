@@ -335,9 +335,9 @@ main {
 .sheet.open .art-lg { transition: transform .6s var(--ease-spring), opacity .4s ease; }
 .sheet.open.paused .art-lg { transform: scale(.86); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
 
-/* ミニプレイヤーは左右スワイプで曲送り */
-.mini { touch-action: pan-y; }
-.mini-body { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; transition: transform .35s var(--ease-spring), opacity .3s; }
+/* ミニプレイヤーは左右スワイプで曲送り、上スワイプで再生画面 */
+.mini { touch-action: none; }
+.mini-body { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
 
 /* 長い曲名は端をぼかして横に流す */
 .title.marquee { text-overflow: clip; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 20px), transparent); padding-left: 12px; margin-left: -12px; }

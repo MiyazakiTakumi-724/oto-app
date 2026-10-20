@@ -285,7 +285,7 @@ function renderQueue() {
 }
 
 let shownTrackId = null;
-let miniSwiping = false;
+let trackSwiping = false; // スワイプで曲を切り替えている最中
 
 function renderNow() {
   const t = player.current();
@@ -299,8 +299,10 @@ function renderNow() {
   $('#npArtist').textContent = t.artist || '';
   $('#npArt').src = t.artUrl || ICON_NOTE;
   if (shownTrackId && shownTrackId !== t.id) {
-    if (!miniSwiping) popIn($('#miniArt'));
-    if ($('#nowPlaying').classList.contains('open')) popIn($('#npArt'));
+    if (!trackSwiping) {
+      popIn($('#miniArt'));
+      if ($('#nowPlaying').classList.contains('open')) popIn($('#npArt'));
+    }
   }
   shownTrackId = t.id;
   $('#artWrap').classList.toggle('video', t.type === 'youtube');
@@ -871,97 +873,169 @@ function restoreSession() {
 }
 
 // ---------- 指での操作 ----------
-// 再生画面を下に引くと指についてきて、離すと閉じるか、バネで元に戻る
-function bindSheetDrag() {
-  const np = $('#nowPlaying');
-  let startY = null, dy = 0, dragging = false, samples = [];
-  np.addEventListener('touchstart', (e) => {
-    startY = np.scrollTop <= 0 && !e.target.closest('input, .queue') ? e.touches[0].clientY : null;
-    dy = 0; dragging = false; samples = [];
+// 指の動きを追い、最初の数pxで縦横どちらの操作かを決める。onLock が false を返すとブラウザに任せる(スクロールなど)
+function bindSwipe(el, { canStart, onLock, onMove, onEnd }) {
+  let g = null;
+  el.addEventListener('touchstart', (e) => {
+    g = null;
+    if (e.touches.length !== 1 || !canStart(e)) return;
+    const t = e.touches[0];
+    g = { x: t.clientX, y: t.clientY, dx: 0, dy: 0, axis: null, hist: [] };
   }, { passive: true });
-  np.addEventListener('touchmove', (e) => {
-    if (startY === null) return;
-    const y = e.touches[0].clientY;
-    dy = y - startY;
-    if (!dragging) {
-      if (dy < 6) { if (dy < 0) startY = null; return; }
-      dragging = true;
-      np.classList.add('dragging');
+  el.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const t = e.touches[0];
+    g.dx = t.clientX - g.x;
+    g.dy = t.clientY - g.y;
+    if (!g.axis) {
+      if (Math.hypot(g.dx, g.dy) < 10) return;
+      g.axis = Math.abs(g.dx) > Math.abs(g.dy) ? 'x' : 'y';
+      if (onLock(g) === false) { g = null; return; }
     }
     e.preventDefault();
-    const d = Math.max(0, dy);
-    np.style.transform = `translateY(${d}px)`;
-    samples.push([e.timeStamp, d]);
-    if (samples.length > 5) samples.shift();
+    g.hist.push([e.timeStamp, g.dx, g.dy]);
+    if (g.hist.length > 5) g.hist.shift();
+    onMove(g);
   }, { passive: false });
-  const end = () => {
-    if (!dragging) { startY = null; return; }
-    const [t0, y0] = samples[0] || [0, 0];
-    const [t1, y1] = samples[samples.length - 1] || [0, 0];
-    const v = t1 > t0 ? (y1 - y0) / (t1 - t0) : 0;
-    const close = dy > 140 || v > 0.5;
-    np.classList.remove('dragging');
-    if (!close) {
-      np.classList.add('settling');
-      clearTimeout(np._settleTimer);
-      np._settleTimer = setTimeout(() => np.classList.remove('settling'), 600);
-    }
-    np.style.transform = '';
-    if (close) closeNow();
-    startY = null; dragging = false;
+  const finish = () => {
+    const done = g;
+    g = null;
+    if (!done?.axis) return;
+    const [t0, x0, y0] = done.hist[0] || [0, 0, 0];
+    const [t1, x1, y1] = done.hist[done.hist.length - 1] || [0, 0, 0];
+    const dt = Math.max(1, t1 - t0);
+    done.vx = (x1 - x0) / dt;
+    done.vy = (y1 - y0) / dt;
+    onEnd(done);
   };
-  np.addEventListener('touchend', end);
-  np.addEventListener('touchcancel', end);
+  el.addEventListener('touchend', finish);
+  el.addEventListener('touchcancel', finish);
 }
 
-// ミニプレイヤーを左右にスワイプして曲を送る/戻す
+const SPRING = 'cubic-bezier(.3, 1.35, .5, 1)';
+
+// 指に合わせて横に動かす
+function slideEls(els, dx, fade = 300) {
+  els.forEach((el) => {
+    el.style.transform = `translateX(${dx}px)`;
+    el.style.opacity = String(Math.max(0.3, 1 - Math.abs(dx) / fade));
+  });
+}
+
+// 指を離したとき: 足りなければバネで戻し、十分なら外へ流してから反対側から入れる
+function finishSlide(els, g, width, action) {
+  const from = els.map((el) => ({ transform: el.style.transform || 'none', opacity: el.style.opacity || '1' }));
+  els.forEach((el) => { el.style.transform = ''; el.style.opacity = ''; });
+  const go = Math.abs(g.dx) > 80 || Math.abs(g.vx) > 0.5;
+  if (!go) {
+    els.forEach((el, i) => el.animate([from[i], { transform: 'none', opacity: 1 }], { duration: 420, easing: SPRING }));
+    return;
+  }
+  const dir = Math.sign(g.dx);
+  trackSwiping = true;
+  const outs = els.map((el, i) => el.animate([from[i], { transform: `translateX(${dir * width * 0.6}px)`, opacity: 0 }],
+    { duration: 160, easing: 'ease-in', fill: 'forwards' }));
+  Promise.all(outs.map((a) => a.finished.catch(() => {}))).then(() => {
+    action();
+    outs.forEach((a) => a.cancel());
+    els.forEach((el) => el.animate([{ transform: `translateX(${-dir * width * 0.4}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
+      { duration: 420, easing: EASE_OUT }));
+    setTimeout(() => { trackSwiping = false; }, 100);
+  });
+}
+
+// 再生画面: 下に引くと閉じる(指に追従してバネで戻る)、右にスワイプで次の曲、左で前の曲
+function bindSheetGestures() {
+  const np = $('#nowPlaying');
+  const moving = () => [$('#artWrap'), np.querySelector('.np-text')];
+  bindSwipe(np, {
+    canStart: (e) => !e.target.closest('input, .queue') && !trackSwiping,
+    onLock: (g) => {
+      if (g.axis === 'x') return;
+      if (g.dy < 0 || np.scrollTop > 0) return false;
+      np.classList.add('dragging');
+    },
+    onMove: (g) => {
+      if (g.axis === 'x') slideEls(moving(), g.dx);
+      else np.style.transform = `translateY(${Math.max(0, g.dy)}px)`;
+    },
+    onEnd: (g) => {
+      if (g.axis === 'x') { finishSlide(moving(), g, np.clientWidth, g.dx > 0 ? () => player.next() : player.prev); return; }
+      const close = g.dy > 140 || g.vy > 0.5;
+      np.classList.remove('dragging');
+      if (!close) {
+        np.classList.add('settling');
+        clearTimeout(np._settleTimer);
+        np._settleTimer = setTimeout(() => np.classList.remove('settling'), 600);
+      }
+      np.style.transform = '';
+      if (close) closeNow();
+    },
+  });
+}
+
+// ミニプレイヤー: 左にスワイプで次の曲、右で前の曲、上にスワイプで再生画面を開く
 let miniSwiped = false;
-function bindMiniSwipe() {
+function bindMiniGestures() {
   const mini = $('#miniPlayer');
   const body = $('#miniBody');
-  let sx = null, sy = 0, dx = 0, active = false, t0 = 0, id = null;
-  mini.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button') || miniSwiping) return;
-    sx = e.clientX; sy = e.clientY; dx = 0; active = false; t0 = e.timeStamp; id = e.pointerId;
+  bindSwipe(mini, {
+    canStart: (e) => !e.target.closest('button') && !trackSwiping,
+    onLock: (g) => {
+      if (g.axis === 'y' && g.dy > 0) return false;
+      miniSwiped = true;
+    },
+    onMove: (g) => {
+      if (g.axis === 'x') slideEls([body], g.dx, 260);
+      else mini.style.transform = `translateY(${Math.max(-70, g.dy * 0.6)}px)`;
+    },
+    onEnd: (g) => {
+      setTimeout(() => { miniSwiped = false; }, 400);
+      if (g.axis === 'x') { finishSlide([body], g, mini.clientWidth, g.dx < 0 ? () => player.next() : player.prev); return; }
+      const from = mini.style.transform;
+      mini.style.transform = '';
+      if (g.dy < -30 || g.vy < -0.4) openNow();
+      else mini.animate([{ transform: from }, { transform: 'none' }], { duration: 420, easing: SPRING });
+    },
   });
-  mini.addEventListener('pointermove', (e) => {
-    if (sx === null || e.pointerId !== id) return;
-    dx = e.clientX - sx;
-    if (!active) {
-      if (Math.abs(dx) < 8) return;
-      if (Math.abs(e.clientY - sy) > Math.abs(dx)) { sx = null; return; }
-      active = true;
-      mini.setPointerCapture(id);
-    }
-    body.style.transition = 'none';
-    body.style.transform = `translateX(${dx}px)`;
-    body.style.opacity = String(Math.max(0.3, 1 - Math.abs(dx) / 260));
+}
+
+// 画面を左右にスワイプしてタブを切り替える(左で右隣のタブへ)
+const TAB_ORDER = ['library', 'playlists', 'sound', 'add'];
+function neighborTab(dx) {
+  if (view === 'playlist' && dx > 0) return 'playlists';
+  const i = TAB_ORDER.indexOf(view === 'playlist' ? 'playlists' : view);
+  return TAB_ORDER[i + (dx < 0 ? 1 : -1)] || null;
+}
+
+function bindTabSwipe() {
+  const cur = () => $(`#view-${view}`);
+  // 曲が少なくて画面の下が空いていても効くように、画面全体で受ける
+  bindSwipe(document.body, {
+    canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock'),
+    onLock: (g) => (g.axis === 'x' ? undefined : false),
+    onMove: (g) => {
+      // 隣のタブがない方向へは重たく少しだけ動く
+      if (neighborTab(g.dx)) slideEls([cur()], g.dx, 500);
+      else slideEls([cur()], g.dx * 0.25, 1e9);
+    },
+    onEnd: (g) => {
+      const el = cur();
+      const next = neighborTab(g.dx);
+      const from = { transform: el.style.transform || 'none', opacity: el.style.opacity || '1' };
+      el.style.transform = '';
+      el.style.opacity = '';
+      if (!next || !(Math.abs(g.dx) > 70 || Math.abs(g.vx) > 0.5)) {
+        el.animate([from, { transform: 'none', opacity: 1 }], { duration: 420, easing: SPRING });
+        return;
+      }
+      const dir = Math.sign(g.dx);
+      el.animate([from, { transform: `translateX(${dir * 90}px)`, opacity: 0 }], { duration: 140, easing: 'ease-in' }).finished.then(() => {
+        switchTab(next);
+        cur().animate([{ transform: `translateX(${-dir * 60}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: EASE_OUT });
+      });
+    },
   });
-  const end = (e) => {
-    if (sx === null || e.pointerId !== id) return;
-    sx = null;
-    if (!active) return;
-    miniSwiped = true;
-    setTimeout(() => { miniSwiped = false; }, 400);
-    const v = dx / Math.max(1, e.timeStamp - t0);
-    const go = Math.abs(dx) > 80 || Math.abs(v) > 0.6;
-    body.style.transition = '';
-    if (!go) { body.style.transform = ''; body.style.opacity = ''; return; }
-    const dir = dx < 0 ? -1 : 1;
-    miniSwiping = true;
-    const w = mini.clientWidth;
-    body.animate([{ transform: `translateX(${dx}px)`, opacity: body.style.opacity }, { transform: `translateX(${dir * w * 0.6}px)`, opacity: 0 }],
-      { duration: 160, easing: 'ease-in', fill: 'forwards' }).finished.then((a) => {
-      body.style.transform = ''; body.style.opacity = '';
-      if (dir < 0) player.next(); else player.prev();
-      body.getAnimations().forEach((x) => x.cancel());
-      body.animate([{ transform: `translateX(${-dir * w * 0.4}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
-        { duration: 420, easing: EASE_OUT });
-      setTimeout(() => { miniSwiping = false; }, 100);
-    });
-  };
-  mini.addEventListener('pointerup', end);
-  mini.addEventListener('pointercancel', end);
 }
 
 // ---------- イベント ----------
@@ -1013,8 +1087,9 @@ function bind() {
     seeking = false;
   });
 
-  bindSheetDrag();
-  bindMiniSwipe();
+  bindSheetGestures();
+  bindMiniGestures();
+  bindTabSwipe();
 
   window.addEventListener('resize', () => { placeYtDock(); refreshMarquees(); });
   $('#nowPlaying').addEventListener('scroll', placeYtDock, { passive: true });
