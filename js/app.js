@@ -965,7 +965,7 @@ function finishSlide(els, g, width, action) {
   }, duration * 0.6);
 }
 
-// 再生画面: 下に引くと閉じる(指に追従してバネで戻る)、左にスワイプで次の曲、右で前の曲
+// 再生画面: 下に引くと閉じる(指に追従してバネで戻る)、右にスワイプで次の曲、左で前の曲
 function bindSheetGestures() {
   const np = $('#nowPlaying');
   const moving = () => [$('#artWrap'), np.querySelector('.np-text')];
@@ -981,7 +981,7 @@ function bindSheetGestures() {
       else np.style.transform = `translateY(${Math.max(0, g.dy)}px)`;
     },
     onEnd: (g) => {
-      if (g.axis === 'x') { finishSlide(moving(), g, np.clientWidth, g.dx < 0 ? () => player.next() : player.prev); return; }
+      if (g.axis === 'x') { finishSlide(moving(), g, np.clientWidth, g.dx > 0 ? () => player.next() : player.prev); return; }
       const close = g.dy > 140 || g.vy > 0.5;
       np.classList.remove('dragging');
       if (!close) {
@@ -995,7 +995,7 @@ function bindSheetGestures() {
   });
 }
 
-// ミニプレイヤー: 左にスワイプで次の曲、右で前の曲、上にスワイプで再生画面を開く
+// ミニプレイヤー: 右にスワイプで次の曲、左で前の曲、上にスワイプで再生画面を開く
 let miniSwiped = false;
 function bindMiniGestures() {
   const mini = $('#miniPlayer');
@@ -1012,7 +1012,7 @@ function bindMiniGestures() {
     },
     onEnd: (g) => {
       setTimeout(() => { miniSwiped = false; }, 400);
-      if (g.axis === 'x') { finishSlide([body], g, mini.clientWidth, g.dx < 0 ? () => player.next() : player.prev); return; }
+      if (g.axis === 'x') { finishSlide([body], g, mini.clientWidth, g.dx > 0 ? () => player.next() : player.prev); return; }
       const from = mini.style.transform;
       mini.style.transform = '';
       if (g.dy < -30 || g.vy < -0.4) openNow();
