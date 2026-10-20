@@ -364,6 +364,8 @@ function show(v, { swiped = false } = {}) {
 }
 
 function switchTab(tab, opts) {
+  // スワイプで来たときは、下のアイコンを弾ませず色だけ変える
+  $('.tabbar').classList.toggle('swiped', !!opts?.swiped);
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   show(tab, opts);
 }
@@ -1045,6 +1047,32 @@ function clearPeer(el) {
   Object.assign(el.style, { top: '', left: '', width: '', transform: '' });
 }
 
+// 上の見出しを指の進み具合に合わせてフェードで入れ替える(半分を過ぎたら隣のタブの名前に)
+function fadeTitle(g, p) {
+  const t = $('#viewTitle');
+  g.title0 ??= t.textContent;
+  const text = p > 0.5 && g.peerName ? TITLES[g.peerName] : g.title0;
+  if (t.textContent !== text) t.textContent = text;
+  t.style.opacity = String(Math.abs(1 - 2 * p));
+}
+
+// 指を離したあと、見出しを最後の名前に落ち着かせる
+function settleTitle(text, duration) {
+  const t = $('#viewTitle');
+  const from = Number(t.style.opacity || 1);
+  t.style.opacity = '';
+  if (t.textContent === text) {
+    t.animate([{ opacity: from }, { opacity: 1 }], { duration, easing: 'ease-out' });
+    return;
+  }
+  // 違う名前が薄く出ているときは、一度消してから入れ替える
+  t.animate([{ opacity: from }, { opacity: 0 }], { duration: duration * 0.4, easing: 'ease-in', fill: 'forwards' }).finished.then((a) => {
+    t.textContent = text;
+    a.cancel();
+    t.animate([{ opacity: 0 }, { opacity: 1 }], { duration: duration * 0.6, easing: 'ease-out' });
+  });
+}
+
 function bindTabSwipe() {
   const cur = () => $(`#view-${view}`);
   const W = () => window.innerWidth;
@@ -1063,6 +1091,7 @@ function bindTabSwipe() {
       const dx = name ? g.dx : g.dx * 0.25;
       cur().style.transform = `translateX(${dx}px)`;
       if (g.peer) g.peer.style.transform = `translateX(${dx + (g.dx < 0 ? W() : -W())}px)`;
+      fadeTitle(g, name ? Math.min(1, Math.abs(g.dx) / W()) : 0);
     },
     onEnd: (g) => {
       const el = cur();
@@ -1075,12 +1104,14 @@ function bindTabSwipe() {
       const go = Math.abs(g.dx) > W() * 0.25 || (Math.abs(g.vx) > 0.4 && Math.sign(g.vx) === Math.sign(g.dx));
       if (!go) {
         const opt = { duration: 320, easing: EASE_OUT };
+        settleTitle(g.title0, opt.duration);
         el.animate([{ transform: fromCur }, { transform: 'none' }], opt);
         peer.animate([{ transform: fromPeer }, { transform: `translateX(${side}px)` }], { ...opt, fill: 'forwards' })
           .finished.then((a) => { a.cancel(); clearPeer(peer); peer.classList.add('hidden'); });
         return;
       }
       const opt = { duration: flingDuration(W() - Math.abs(g.dx), g.vx), easing: FLING_EASE, fill: 'forwards' };
+      settleTitle(TITLES[g.peerName], opt.duration);
       el.animate([{ transform: fromCur }, { transform: `translateX(${-side}px)` }], opt);
       peer.animate([{ transform: fromPeer }, { transform: 'none' }], opt).finished.then(() => {
         clearPeer(peer);
@@ -1186,7 +1217,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {

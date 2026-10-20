@@ -292,6 +292,7 @@ main {
 
 /* タブを選んだとき */
 .tabbar button.active svg { animation: tab-pop .45s var(--ease-spring); }
+.tabbar.swiped button.active svg { animation: none; }
 @keyframes tab-pop { from { transform: scale(.7) translateY(3px); } }
 
 /* スイッチはバネのように */
