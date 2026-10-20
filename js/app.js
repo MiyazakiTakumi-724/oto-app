@@ -34,6 +34,7 @@ function fmt(sec) {
 // 動きを減らす設定の端末では、アニメーションをしない
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const EASE_OUT = 'cubic-bezier(.22, 1, .36, 1)';
+const PAUSED_SCALE = 0.86; // 一時停止中のジャケットの大きさ(style.css と合わせる)
 
 function showEl(el) {
   clearTimeout(el._closeTimer);
@@ -60,6 +61,71 @@ function staggerIn(items) {
 function popIn(el) {
   if (REDUCED || !el.animate) return;
   el.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: EASE_OUT });
+}
+
+// 長い曲名は横に流す(収まる長さならそのまま)
+function setMarquee(el, text) {
+  const w = el.clientWidth;
+  if (el.dataset.text === text && el._mqW === w) return;
+  el.dataset.text = text;
+  el._mqW = w;
+  el.classList.remove('marquee');
+  el.textContent = text;
+  if (REDUCED || !w || el.scrollWidth <= w + 1) return;
+  const track = document.createElement('span');
+  track.className = 'marquee-track';
+  const a = document.createElement('span');
+  a.textContent = text;
+  const b = a.cloneNode(true);
+  b.setAttribute('aria-hidden', 'true');
+  track.append(a, b);
+  el.textContent = '';
+  el.append(track);
+  el.classList.add('marquee');
+  const dist = a.offsetWidth;
+  track.style.setProperty('--dist', `${-dist}px`);
+  track.style.animationDuration = `${(dist / 32 / 0.8).toFixed(1)}s`;
+  el._mqW = el.clientWidth;
+}
+
+function refreshMarquees() {
+  ['#miniTitle', '#npTitle'].forEach((sel) => {
+    const el = $(sel);
+    if (el.dataset.text != null) { el._mqW = -1; setMarquee(el, el.dataset.text); }
+  });
+}
+
+// 削除した行を縮めて消す(下の行が詰まってくる)
+function collapseRows(rows) {
+  if (REDUCED || !rows.length) return Promise.resolve();
+  return Promise.all([...rows].map((el) => {
+    const h = el.offsetHeight;
+    el.style.overflow = 'hidden';
+    return el.animate([
+      { height: `${h}px`, minHeight: '0px', opacity: 1, transform: 'none' },
+      { height: `${h}px`, minHeight: '0px', opacity: 0, transform: 'translateX(-24px)', offset: 0.45 },
+      { height: '0px', minHeight: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0, transform: 'translateX(-24px)' },
+    ], { duration: 420, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'forwards' }).finished.catch(() => {});
+  }));
+}
+
+// ミニプレイヤーと再生画面の間で、ジャケットが飛んで大きさを変える
+function flyArt(from, to, { radiusFrom, radiusTo, duration = 460 } = {}) {
+  const a = from.getBoundingClientRect();
+  const b = to.getBoundingClientRect();
+  if (!a.width || !b.width) return null;
+  const img = document.createElement('img');
+  img.className = 'art-flight';
+  img.src = $('#npArt').src;
+  Object.assign(img.style, { left: `${b.left}px`, top: `${b.top}px`, width: `${b.width}px`, height: `${b.height}px` });
+  document.body.append(img);
+  const sx = a.width / b.width;
+  const sy = a.height / b.height;
+  const anim = img.animate([
+    { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${sx}, ${sy})`, borderRadius: `${radiusFrom / sx}px` },
+    { transform: 'none', borderRadius: `${radiusTo}px` },
+  ], { duration, easing: EASE_OUT, fill: 'forwards' });
+  return anim.finished.catch(() => {}).then(() => img.remove());
 }
 
 let toastTimer;
@@ -145,6 +211,7 @@ async function loadAll() {
 function trackRow(t, { index, onTap, menu = true } = {}) {
   const li = document.createElement('li');
   li.className = 'track' + (player.current()?.id === t.id ? ' playing' : '');
+  li.dataset.id = t.id;
   li.innerHTML = `
     <img class="art-sm" src="${esc(t.artUrl || ICON_NOTE)}" alt="" loading="lazy">
     <div class="meta">
@@ -218,20 +285,21 @@ function renderQueue() {
 }
 
 let shownTrackId = null;
+let miniSwiping = false;
 
 function renderNow() {
   const t = player.current();
   $('#miniPlayer').classList.toggle('hidden', !t);
   document.querySelectorAll('.track').forEach((el) => el.classList.remove('playing'));
   if (!t) return;
-  $('#miniTitle').textContent = t.title;
+  setMarquee($('#miniTitle'), t.title);
   $('#miniArtist').textContent = t.artist || '';
   $('#miniArt').src = t.artUrl || ICON_NOTE;
-  $('#npTitle').textContent = t.title;
+  setMarquee($('#npTitle'), t.title);
   $('#npArtist').textContent = t.artist || '';
   $('#npArt').src = t.artUrl || ICON_NOTE;
   if (shownTrackId && shownTrackId !== t.id) {
-    popIn($('#miniArt'));
+    if (!miniSwiping) popIn($('#miniArt'));
     if ($('#nowPlaying').classList.contains('open')) popIn($('#npArt'));
   }
   shownTrackId = t.id;
@@ -249,6 +317,7 @@ function renderControls() {
     b.dataset.playing = String(playing);
     b.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
   });
+  $('#nowPlaying').classList.toggle('paused', !playing);
   $('#shuffleBtn').classList.toggle('on', shuffle);
   $('#repeatBtn').classList.toggle('on', repeat !== 'off');
   $('#repeatOne').classList.toggle('hidden', repeat !== 'one');
@@ -346,6 +415,7 @@ async function createPlaylist() {
 async function removeFromPlaylist(plId, trackId) {
   const pl = playlists.find((p) => p.id === plId);
   if (!pl) return;
+  await collapseRows(document.querySelectorAll(`#playlistTracks .track[data-id="${CSS.escape(trackId)}"]`));
   pl.trackIds = pl.trackIds.filter((id) => id !== trackId);
   await db.putPlaylist(pl);
   rerender();
@@ -371,6 +441,7 @@ async function saveTrackMeta(t, { touch = true } = {}) {
 
 async function removeTrack(t) {
   if (!(await confirmDanger(`「${t.title}」をライブラリから削除しますか?`, '削除'))) return;
+  await collapseRows(document.querySelectorAll(`main .track[data-id="${CSS.escape(t.id)}"]`));
   await db.deleteTrack(t.id);
   if (t.artUrl?.startsWith('blob:')) URL.revokeObjectURL(t.artUrl);
   player.removeFromQueue(t.id);
@@ -724,17 +795,48 @@ function bindSync() {
 }
 
 // ---------- 再生画面 ----------
+// ジャケットを飛ばせるとき(動画ではなく、ミニプレイヤーが見えている)
+function canFly() {
+  return !REDUCED && player.current()?.type !== 'youtube' && !$('#miniPlayer').classList.contains('hidden');
+}
+
 function openNow() {
-  $('#nowPlaying').classList.add('open');
-  $('#nowPlaying').setAttribute('aria-hidden', 'false');
+  const np = $('#nowPlaying');
+  if (np.classList.contains('open')) return;
+  np.scrollTop = 0;
+  if (canFly()) {
+    // 再生画面が開き切ったときのジャケット位置(一時停止中は少し小さい)へ向けて飛ばす
+    const offset = new DOMMatrix(getComputedStyle(np).transform).m42;
+    const r = $('#artWrap').getBoundingClientRect();
+    const scale = np.classList.contains('paused') ? PAUSED_SCALE : 1;
+    const target = { getBoundingClientRect: () => new DOMRect(r.left + r.width * (1 - scale) / 2, r.top - offset + r.height * (1 - scale) / 2, r.width * scale, r.height * scale) };
+    np.classList.add('flying');
+    $('#miniArt').style.visibility = 'hidden';
+    flyArt($('#miniArt'), target, { radiusFrom: 6, radiusTo: 12 * scale })?.then(() => {
+      np.classList.remove('flying');
+      $('#miniArt').style.visibility = '';
+    });
+  }
+  np.classList.add('open');
+  np.setAttribute('aria-hidden', 'false');
+  refreshMarquees();
   renderQueue();
   startViz();
   setTimeout(placeYtDock, 450);
 }
 
 function closeNow() {
-  $('#nowPlaying').classList.remove('open');
-  $('#nowPlaying').setAttribute('aria-hidden', 'true');
+  const np = $('#nowPlaying');
+  if (canFly() && np.classList.contains('open')) {
+    np.classList.add('flying');
+    $('#miniArt').style.visibility = 'hidden';
+    flyArt($('#npArt'), $('#miniArt'), { radiusFrom: 12, radiusTo: 6, duration: 420 })?.then(() => {
+      np.classList.remove('flying');
+      $('#miniArt').style.visibility = '';
+    });
+  }
+  np.classList.remove('open');
+  np.setAttribute('aria-hidden', 'true');
   $('#queuePanel').classList.add('hidden');
   placeYtDock();
 }
@@ -768,6 +870,100 @@ function restoreSession() {
   } catch { /* 無視 */ }
 }
 
+// ---------- 指での操作 ----------
+// 再生画面を下に引くと指についてきて、離すと閉じるか、バネで元に戻る
+function bindSheetDrag() {
+  const np = $('#nowPlaying');
+  let startY = null, dy = 0, dragging = false, samples = [];
+  np.addEventListener('touchstart', (e) => {
+    startY = np.scrollTop <= 0 && !e.target.closest('input, .queue') ? e.touches[0].clientY : null;
+    dy = 0; dragging = false; samples = [];
+  }, { passive: true });
+  np.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    const y = e.touches[0].clientY;
+    dy = y - startY;
+    if (!dragging) {
+      if (dy < 6) { if (dy < 0) startY = null; return; }
+      dragging = true;
+      np.classList.add('dragging');
+    }
+    e.preventDefault();
+    const d = Math.max(0, dy);
+    np.style.transform = `translateY(${d}px)`;
+    samples.push([e.timeStamp, d]);
+    if (samples.length > 5) samples.shift();
+  }, { passive: false });
+  const end = () => {
+    if (!dragging) { startY = null; return; }
+    const [t0, y0] = samples[0] || [0, 0];
+    const [t1, y1] = samples[samples.length - 1] || [0, 0];
+    const v = t1 > t0 ? (y1 - y0) / (t1 - t0) : 0;
+    const close = dy > 140 || v > 0.5;
+    np.classList.remove('dragging');
+    if (!close) {
+      np.classList.add('settling');
+      clearTimeout(np._settleTimer);
+      np._settleTimer = setTimeout(() => np.classList.remove('settling'), 600);
+    }
+    np.style.transform = '';
+    if (close) closeNow();
+    startY = null; dragging = false;
+  };
+  np.addEventListener('touchend', end);
+  np.addEventListener('touchcancel', end);
+}
+
+// ミニプレイヤーを左右にスワイプして曲を送る/戻す
+let miniSwiped = false;
+function bindMiniSwipe() {
+  const mini = $('#miniPlayer');
+  const body = $('#miniBody');
+  let sx = null, sy = 0, dx = 0, active = false, t0 = 0, id = null;
+  mini.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button') || miniSwiping) return;
+    sx = e.clientX; sy = e.clientY; dx = 0; active = false; t0 = e.timeStamp; id = e.pointerId;
+  });
+  mini.addEventListener('pointermove', (e) => {
+    if (sx === null || e.pointerId !== id) return;
+    dx = e.clientX - sx;
+    if (!active) {
+      if (Math.abs(dx) < 8) return;
+      if (Math.abs(e.clientY - sy) > Math.abs(dx)) { sx = null; return; }
+      active = true;
+      mini.setPointerCapture(id);
+    }
+    body.style.transition = 'none';
+    body.style.transform = `translateX(${dx}px)`;
+    body.style.opacity = String(Math.max(0.3, 1 - Math.abs(dx) / 260));
+  });
+  const end = (e) => {
+    if (sx === null || e.pointerId !== id) return;
+    sx = null;
+    if (!active) return;
+    miniSwiped = true;
+    setTimeout(() => { miniSwiped = false; }, 400);
+    const v = dx / Math.max(1, e.timeStamp - t0);
+    const go = Math.abs(dx) > 80 || Math.abs(v) > 0.6;
+    body.style.transition = '';
+    if (!go) { body.style.transform = ''; body.style.opacity = ''; return; }
+    const dir = dx < 0 ? -1 : 1;
+    miniSwiping = true;
+    const w = mini.clientWidth;
+    body.animate([{ transform: `translateX(${dx}px)`, opacity: body.style.opacity }, { transform: `translateX(${dir * w * 0.6}px)`, opacity: 0 }],
+      { duration: 160, easing: 'ease-in', fill: 'forwards' }).finished.then((a) => {
+      body.style.transform = ''; body.style.opacity = '';
+      if (dir < 0) player.next(); else player.prev();
+      body.getAnimations().forEach((x) => x.cancel());
+      body.animate([{ transform: `translateX(${-dir * w * 0.4}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }],
+        { duration: 420, easing: EASE_OUT });
+      setTimeout(() => { miniSwiping = false; }, 100);
+    });
+  };
+  mini.addEventListener('pointerup', end);
+  mini.addEventListener('pointercancel', end);
+}
+
 // ---------- イベント ----------
 function bind() {
   bindSound();
@@ -794,6 +990,7 @@ function bind() {
   $('#ytForm').addEventListener('submit', addYouTube);
 
   $('#miniPlayer').addEventListener('click', (e) => {
+    if (miniSwiped) { miniSwiped = false; return; }
     if (e.target.closest('#miniPlayBtn')) player.toggle();
     else if (e.target.closest('#miniNextBtn')) player.next();
     else openNow();
@@ -816,17 +1013,11 @@ function bind() {
     seeking = false;
   });
 
-  // 下に引いて再生画面を閉じる
-  let startY = null;
-  const np = $('#nowPlaying');
-  np.addEventListener('touchstart', (e) => { startY = np.scrollTop <= 0 && !e.target.closest('input') ? e.touches[0].clientY : null; }, { passive: true });
-  np.addEventListener('touchend', (e) => {
-    if (startY !== null && e.changedTouches[0].clientY - startY > 90) closeNow();
-    startY = null;
-  });
+  bindSheetDrag();
+  bindMiniSwipe();
 
-  window.addEventListener('resize', placeYtDock);
-  np.addEventListener('scroll', placeYtDock, { passive: true });
+  window.addEventListener('resize', () => { placeYtDock(); refreshMarquees(); });
+  $('#nowPlaying').addEventListener('scroll', placeYtDock, { passive: true });
 
   player.on('change', () => { renderNow(); renderQueue(); saveSession(); });
   player.on('queue', () => { renderControls(); renderQueue(); saveSession(); });

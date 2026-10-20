@@ -322,6 +322,29 @@ main {
 .empty-logo { animation: float 4.5s ease-in-out infinite; }
 @keyframes float { 50% { transform: translateY(-8px); } }
 
+/* ミニプレイヤーと再生画面の間を飛ぶジャケット */
+.art-flight { position: fixed; z-index: 25; object-fit: cover; background: var(--bg-3); transform-origin: 0 0; pointer-events: none; box-shadow: 0 12px 40px rgba(0,0,0,.45); will-change: transform; }
+.sheet.flying .art-lg { visibility: hidden; transition: none; }
+
+/* 再生画面を指で引く: 引いている間は指に追従、離すとバネで戻る */
+.sheet { box-shadow: 0 120px 0 var(--bg); }
+.sheet.dragging { transition: none; }
+.sheet.settling { transition: transform .5s cubic-bezier(.3, 1.35, .5, 1); }
+
+/* 一時停止中はジャケットが少し縮む */
+.sheet.open .art-lg { transition: transform .6s var(--ease-spring), opacity .4s ease; }
+.sheet.open.paused .art-lg { transform: scale(.86); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+
+/* ミニプレイヤーは左右スワイプで曲送り */
+.mini { touch-action: pan-y; }
+.mini-body { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; transition: transform .35s var(--ease-spring), opacity .3s; }
+
+/* 長い曲名は端をぼかして横に流す */
+.title.marquee { text-overflow: clip; -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 20px), transparent); padding-left: 12px; margin-left: -12px; }
+.marquee-track { display: inline-flex; animation: marquee 12s linear infinite; }
+.marquee-track > span { padding-right: 48px; }
+@keyframes marquee { 0%, 20% { transform: none; } 100% { transform: translateX(var(--dist)); } }
+
 /* 動きを減らす設定の端末では止める */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
