@@ -228,6 +228,12 @@ function shaper(ctx, fn) {
 }
 
 // 立体音響: 何もしない経路・8Dオーディオ・バーチャルサラウンドを用意して、音量で切り替える
+const SUR_XOVER = 160;  // これより下の低音は仮想スピーカーを通さない
+const SUR_REAR = 0.6;   // 後ろのスピーカーの大きさ
+const SUR_MAKEUP = 0.85;   // HRTFで変わった音量の補正
+// HRTFを通すと200Hz付近がふくらみ、高音が少しこもるので、元の音色に近づける補正
+const SUR_EQ = [['peaking', 160, 1, -14], ['peaking', 420, 1, -2], ['peaking', 1400, 1, 3.5], ['peaking', 6500, 1.5, 2.5], ['peaking', 10500, 1.2, 4.5]];
+
 function buildSpatialStage(ctx, input) {
   const out = ctx.createGain();
   const dry = ctx.createGain();
@@ -278,34 +284,86 @@ function buildSpatialStage(ctx, input) {
   sin.start();
   cos.start();
 
-  // バーチャルサラウンド: スピーカーで聴くときのように、反対側の耳にも少し遅れて柔らかい音を届け(クロスフィード)、
-  // 小さな部屋の反射を少し足す
+  // バーチャルサラウンド: 頭のまわりに仮想のスピーカーを置き、そこから鳴っているように聞かせる(HRTF)
+  // 前の2本(左右30°)に元の左右、後ろの2本(左右110°)に左右の差(響きや広がりの成分)を少し遅らせて送る。
+  // 低音は向きが分かりにくく、HRTFを通すと痩せるので、そのまま通す
   const sur = ctx.createGain();
+  const virt = ctx.createGain();
   const splitS = ctx.createChannelSplitter(2);
-  const mergeS = ctx.createChannelMerger(2);
   input.connect(splitS);
-  splitS.connect(mergeS, 0, 0);
-  splitS.connect(mergeS, 1, 1);
-  [[0, 1], [1, 0]].forEach(([from, to]) => {
-    const delay = ctx.createDelay(0.01);
-    delay.delayTime.value = 0.00025;
-    const lp = biquad(ctx, 'lowpass', 700, 0.5);
-    const g = ctx.createGain();
-    g.gain.value = 0.3;
-    splitS.connect(delay, from).connect(lp).connect(g).connect(mergeS, 0, to);
+  const mergeLow = ctx.createChannelMerger(2);
+  const high = [0, 1].map((c) => {
+    const lo = lr4(ctx, 'lowpass', SUR_XOVER);
+    const hi = lr4(ctx, 'highpass', SUR_XOVER);
+    splitS.connect(lo.in, c);
+    splitS.connect(hi.in, c);
+    lo.out.connect(mergeLow, 0, c);
+    return hi.out;
   });
-  const level = ctx.createGain();
-  level.gain.value = 0.82; // クロスフィードで増えた低音の分を戻す
-  mergeS.connect(level).connect(sur);
+  // 仮想スピーカーとの境目(160Hz付近)で低音が少しふくらむので抑える
+  const lowTrim = biquad(ctx, 'peaking', 120, 0.8);
+  lowTrim.gain.value = -3;
+  const surOut = ctx.createGain();
+  sur.connect(lowTrim).connect(surOut);
+  mergeLow.connect(sur);
+  const speaker = (src, deg, gain) => {
+    const p = ctx.createPanner();
+    p.panningModel = 'HRTF';
+    p.distanceModel = 'linear';
+    p.rolloffFactor = 0; // 距離で小さくしない
+    p.channelCount = 1;
+    p.channelCountMode = 'explicit';
+    const a = (deg * Math.PI) / 180;
+    if (p.positionX) {
+      p.positionX.value = Math.sin(a);
+      p.positionY.value = 0;
+      p.positionZ.value = -Math.cos(a);
+    } else {
+      p.setPosition(Math.sin(a), 0, -Math.cos(a));
+    }
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(p).connect(virt);
+  };
+  speaker(high[0], -30, 1);
+  speaker(high[1], 30, 1);
+  // 後ろ: 左右の差を取り出し、左右で遅れをずらして(15ms / 21ms)前の音と混ざらないようにする
+  const side = ctx.createGain();
+  side.gain.value = 0.5;
+  const invR = ctx.createGain();
+  invR.gain.value = -1;
+  high[0].connect(side);
+  high[1].connect(invR).connect(side);
+  const rear = (ms, sign, deg) => {
+    const d = ctx.createDelay(0.05);
+    d.delayTime.value = ms / 1000;
+    const lp = biquad(ctx, 'lowpass', 7000);
+    const g = ctx.createGain();
+    g.gain.value = sign;
+    side.connect(d).connect(lp).connect(g);
+    speaker(g, deg, SUR_REAR);
+  };
+  rear(15, 1, -110);
+  rear(21, -1, 110);
+  let tone = virt;
+  SUR_EQ.forEach(([type, f, q, gain]) => {
+    const b = biquad(ctx, type, f, q);
+    b.gain.value = gain;
+    tone = tone.connect(b);
+  });
+  const comp = ctx.createGain();
+  comp.gain.value = SUR_MAKEUP;
+  tone.connect(comp).connect(sur);
+  // 小さな部屋の反射を少し足して、スピーカーに囲まれている感じを出す
   const room = ctx.createConvolver();
   room.normalize = false;
   room.buffer = makeImpulse(ctx, ROOM);
   const roomGain = ctx.createGain();
-  roomGain.gain.value = 0.18;
-  level.connect(room).connect(roomGain).connect(sur);
-  sur.connect(out);
+  roomGain.gain.value = 0.12;
+  comp.connect(room).connect(roomGain).connect(sur);
+  surOut.connect(out);
 
-  return { out, dry, d8, sur, osc: [sin, cos] };
+  return { out, dry, d8, sur: surOut, osc: [sin, cos] };
 }
 
 // decks: [{ el: HTMLAudioElement }, ...]。ユーザー操作の中で呼ぶこと(AudioContext の起動制限のため)
