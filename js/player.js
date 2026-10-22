@@ -145,6 +145,15 @@ function userGesture() {
 
 const startOf = (t) => (fx.settings.trimSilence && t.analysis?.start > 0.3 ? t.analysis.start : 0);
 
+// 無音カット中に曲の最初の無音にいたら、音が始まる位置まで飛ばす
+// (再生ボタンで再開したとき、最後まで行って頭に戻ったとき、解析が後から終わったときなど、どこから再生しても効くように)
+function skipIntro(t, el) {
+  const s = startOf(t);
+  if (s && el.readyState >= 1 && el.currentTime < s - 0.25) {
+    try { el.currentTime = s; } catch { /* 無視 */ }
+  }
+}
+
 function endOf(t, el) {
   const dur = el.duration;
   if (fx.settings.trimSilence && t.analysis && t.analysis.end < (dur || Infinity) - 0.3) return t.analysis.end;
@@ -269,6 +278,7 @@ function tick() {
   const t = current();
   const d = deck();
   if (!t || t.type !== 'file' || d.el.paused || fading || !d.url) return;
+  skipIntro(t, d.el);
   const end = endOf(t, d.el);
   if (!end) return;
   const remain = (end - d.el.currentTime) / (d.el.playbackRate || 1);
@@ -364,6 +374,7 @@ export function play() {
   if (!t) return;
   if (t.type === 'file') {
     userGesture();
+    skipIntro(t, deck().el);
     deck().el.play().catch(() => {});
   } else yt?.playVideo?.();
 }
@@ -395,7 +406,7 @@ export function currentTime() {
 export function next(auto = false) {
   if (!state.queue.length) return;
   const ni = nextIndex(auto);
-  if (ni < 0) { pause(); seek(0); return; }
+  if (ni < 0) { pause(); seek(startOf(current())); return; }
   state.index = ni;
   load(true);
 }
