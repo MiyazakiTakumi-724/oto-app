@@ -334,6 +334,39 @@ main {
 .empty-logo { animation: float 4.5s ease-in-out infinite; }
 @keyframes float { 50% { transform: translateY(-8px); } }
 
+/* ---------- ごほうび: 達成した瞬間に弾けるきらめきと輪 ---------- */
+.celebrate-burst { position: fixed; z-index: 45; width: 0; height: 0; pointer-events: none; }
+.celebrate-burst .spark {
+  position: absolute; left: 0; top: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%; background: var(--spark-color, var(--accent));
+  animation: spark-fly .7s var(--ease-out) forwards; animation-fill-mode: forwards;
+}
+@keyframes spark-fly {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  to { transform: translate(var(--tx), var(--ty)) scale(.2); opacity: 0; }
+}
+.celebrate-ring {
+  position: fixed; z-index: 44; border-radius: 50%; border: 2px solid var(--accent);
+  pointer-events: none; animation: ring-pulse .6s var(--ease-out) forwards;
+}
+@keyframes ring-pulse {
+  from { opacity: .9; transform: scale(.6); }
+  to { opacity: 0; transform: scale(1.9); }
+}
+
+/* 達成したときのトースト: 現れたあと、もうひと弾み */
+.toast.celebrate:not(.hidden) { animation: toast-in .5s var(--ease-spring) backwards, toast-bounce .45s var(--ease-spring) .48s; }
+@keyframes toast-bounce { 35% { transform: translateX(-50%) scale(1.07); } }
+
+/* 再生ボタン: 再生し始めた瞬間に光が広がる */
+.play-btn, #miniPlayBtn { position: relative; }
+.play-btn.glow::after, #miniPlayBtn.glow::after {
+  content: ""; position: absolute; inset: -8px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent) 0%, transparent 70%);
+  animation: glow-pulse .55s var(--ease-out) forwards; pointer-events: none;
+}
+@keyframes glow-pulse { from { opacity: 1; transform: scale(.7); } to { opacity: 0; transform: scale(1.7); } }
+
 /* ミニプレイヤーと再生画面の間を飛ぶジャケット */
 .art-flight { position: fixed; z-index: 25; object-fit: cover; background: var(--bg-3); transform-origin: 0 0; pointer-events: none; box-shadow: 0 12px 40px rgba(0,0,0,.45); will-change: transform; }
 .sheet.flying .art-lg { visibility: hidden; transition: none; }

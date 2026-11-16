@@ -128,11 +128,68 @@ function flyArt(from, to, { radiusFrom, radiusTo, duration = 460 } = {}) {
   return anim.finished.catch(() => {}).then(() => img.remove());
 }
 
+// ---------- ごほうびアニメーション(達成した瞬間の演出) ----------
+const SPARK_COLORS = ['#ff5a5f', '#ffd166', '#5ad1ff'];
+
+// origin の中心から、きらめきが弾ける(動きを減らす設定では出さない)
+// ring/vibrate ありの大きめの演出は「達成」した瞬間に、なしの軽い演出はよく使う操作のたびに使う
+function spawnBurst(origin, { ring = true, count = 10, vibrate = true } = {}) {
+  if (REDUCED || !origin) return;
+  const r = origin.getBoundingClientRect();
+  if (!r.width && !r.height) return;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+
+  const box = document.createElement('div');
+  box.className = 'celebrate-burst';
+  box.style.left = `${cx}px`;
+  box.style.top = `${cy}px`;
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('span');
+    s.className = 'spark';
+    const a = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+    const d = (ring ? 30 : 20) + Math.random() * (ring ? 28 : 16);
+    s.style.setProperty('--tx', `${Math.cos(a) * d}px`);
+    s.style.setProperty('--ty', `${Math.sin(a) * d}px`);
+    s.style.setProperty('--spark-color', SPARK_COLORS[i % SPARK_COLORS.length]);
+    s.style.animationDelay = `${Math.random() * 60}ms`;
+    box.appendChild(s);
+  }
+  document.body.append(box);
+  setTimeout(() => box.remove(), 900);
+
+  if (ring) {
+    const el = document.createElement('div');
+    el.className = 'celebrate-ring';
+    const size = Math.max(r.width, r.height, 40) * 1.4;
+    Object.assign(el.style, { left: `${cx - size / 2}px`, top: `${cy - size / 2}px`, width: `${size}px`, height: `${size}px` });
+    document.body.append(el);
+    setTimeout(() => el.remove(), 650);
+  }
+
+  if (vibrate && navigator.vibrate) { try { navigator.vibrate(12); } catch { /* 無視 */ } }
+}
+
+// よく使うボタン・切り替え用の軽いきらめき(輪や振動なし)
+const spark = (origin) => spawnBurst(origin, { ring: false, count: 6, vibrate: false });
+
+// 再生ボタンが光って弾む(再生し始めた瞬間だけ)
+function glowPulse(el) {
+  if (REDUCED || !el) return;
+  el.classList.remove('glow');
+  requestAnimationFrame(() => {
+    el.classList.add('glow');
+    setTimeout(() => el.classList.remove('glow'), 600);
+  });
+}
+
 let toastTimer;
-function toast(msg) {
+function toast(msg, { celebrate = false } = {}) {
   const el = $('#toast');
   el.textContent = msg;
+  el.classList.toggle('celebrate', celebrate);
   showEl(el);
+  if (celebrate) spawnBurst(el);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => hideAnimated(el), 2600);
 }
@@ -320,6 +377,7 @@ function renderControls() {
     if (b.dataset.playing === String(playing)) return;
     b.dataset.playing = String(playing);
     b.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+    if (playing) glowPulse(b);
   });
   $('#nowPlaying').classList.toggle('paused', !playing);
   $('#shuffleBtn').classList.toggle('on', shuffle);
@@ -401,7 +459,7 @@ function addToPlaylistMenu(t) {
         pl.trackIds.push(t.id);
         await db.putPlaylist(pl);
       }
-      toast(`「${pl.name}」に追加しました`);
+      toast(`「${pl.name}」に追加しました`, { celebrate: true });
       rerender();
     },
   }));
@@ -412,7 +470,7 @@ function addToPlaylistMenu(t) {
       if (pl) {
         pl.trackIds.push(t.id);
         await db.putPlaylist(pl);
-        toast(`「${pl.name}」に追加しました`);
+        toast(`「${pl.name}」に追加しました`, { celebrate: true });
         rerender();
       }
     },
@@ -446,6 +504,7 @@ async function editTrack(t) {
   t.artist = artist.trim();
   t.titlePending = false;
   await saveTrackMeta(t);
+  toast('曲の情報を保存しました', { celebrate: true });
   rerender();
   player.refreshMeta();
 }
@@ -514,6 +573,7 @@ async function importFiles(files) {
     }
   }
   status.textContent = `${ok}曲を追加しました` + (ok < list.length ? `(${list.length - ok}件は失敗)` : '');
+  if (ok > 0) toast(`${ok}曲をライブラリに追加しました`, { celebrate: true });
   await loadAll();
   updateStorageInfo();
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
@@ -564,6 +624,7 @@ async function addYouTube(e) {
   await db.putTrack(track);
   input.value = '';
   status.textContent = `「${track.title}」を追加しました`;
+  toast(`「${track.title}」を追加しました`, { celebrate: true });
   await loadAll();
 }
 
@@ -640,7 +701,7 @@ function renderSound() {
     const b = document.createElement('button');
     b.className = 'chip' + (s.preset === key ? ' on' : '');
     b.textContent = p.name;
-    b.onclick = () => { fx.update({ preset: key, eq: p.eq.slice() }); renderSound(); };
+    b.onclick = () => { spark(b); fx.update({ preset: key, eq: p.eq.slice() }); renderSound(); };
     chips.appendChild(b);
   });
   if (s.preset === 'custom') {
@@ -675,7 +736,11 @@ function renderSound() {
 
 function bindSound() {
   const num = (id, key) => $(id).addEventListener('input', (e) => { fx.update({ [key]: Number(e.target.value) }); renderSound(); });
-  const flag = (id, key) => $(id).addEventListener('change', (e) => { fx.update({ [key]: e.target.checked }); renderSound(); });
+  const flag = (id, key) => $(id).addEventListener('change', (e) => {
+    if (e.target.checked) spark(e.target);
+    fx.update({ [key]: e.target.checked });
+    renderSound();
+  });
   num('#fxVolume', 'volume');
   num('#npVolume', 'volume');
   num('#fxCrossfade', 'crossfade');
@@ -690,10 +755,10 @@ function bindSound() {
   num('#fxVocal', 'vocal');
   num('#fxInst', 'inst');
   document.querySelectorAll('#fxSpatial button').forEach((b) => {
-    b.onclick = () => { fx.update({ spatial: b.dataset.mode }); renderSound(); };
+    b.onclick = () => { if (b.dataset.mode !== 'off') spark(b); fx.update({ spatial: b.dataset.mode }); renderSound(); };
   });
   document.querySelectorAll('#fxVocalPresets .chip').forEach((b) => {
-    b.onclick = () => { fx.update({ vocal: Number(b.dataset.vocal), inst: Number(b.dataset.inst) }); renderSound(); };
+    b.onclick = () => { spark(b); fx.update({ vocal: Number(b.dataset.vocal), inst: Number(b.dataset.inst) }); renderSound(); };
   });
   $('#fxReset').onclick = () => { fx.reset(); renderSound(); toast('サウンド設定を元に戻しました'); };
 }
@@ -792,7 +857,11 @@ function startSignIn() {
 function bindSync() {
   $('#syncLoginBtn').onclick = startSignIn;
   $('#syncBannerBtn').onclick = startSignIn;
-  $('#syncNowBtn').onclick = () => sync.sync();
+  $('#syncNowBtn').onclick = async () => {
+    const before = sync.state.lastSync;
+    await sync.sync();
+    if (!sync.state.error && sync.state.lastSync !== before) toast('同期しました', { celebrate: true });
+  };
   $('#syncLogoutBtn').onclick = async () => {
     if (!(await confirmDanger('Googleドライブとの同期をやめますか?この端末の曲とドライブの曲はどちらも残ります。', '同期をやめる'))) return;
     sync.signOut();
@@ -1170,16 +1239,27 @@ function bind() {
     renderLibrary();
     staggerIn($('#libraryList').children);
   });
-  $('#playAllBtn').onclick = () => player.playList(filteredTracks(), 0, { shuffle: false });
-  $('#shuffleAllBtn').onclick = () => player.playList(filteredTracks(), -1, { shuffle: true });
-  $('#newPlaylistBtn').onclick = async () => { const pl = await createPlaylist(); if (pl) renderPlaylists(); };
+  $('#playAllBtn').onclick = () => {
+    const items = filteredTracks();
+    if (items.length) { spark($('#playAllBtn')); player.playList(items, 0, { shuffle: false }); }
+  };
+  $('#shuffleAllBtn').onclick = () => {
+    const items = filteredTracks();
+    if (items.length) { spark($('#shuffleAllBtn')); player.playList(items, -1, { shuffle: true }); }
+  };
+  $('#newPlaylistBtn').onclick = async () => {
+    const pl = await createPlaylist();
+    if (pl) { renderPlaylists(); toast(`「${pl.name}」を作成しました`, { celebrate: true }); }
+  };
   $('#plPlayBtn').onclick = () => {
     const pl = playlists.find((p) => p.id === openPlaylistId);
-    if (pl) player.playList(playlistTracks(pl), 0, { shuffle: false });
+    const items = pl ? playlistTracks(pl) : [];
+    if (items.length) { spark($('#plPlayBtn')); player.playList(items, 0, { shuffle: false }); }
   };
   $('#plShuffleBtn').onclick = () => {
     const pl = playlists.find((p) => p.id === openPlaylistId);
-    if (pl) player.playList(playlistTracks(pl), -1, { shuffle: true });
+    const items = pl ? playlistTracks(pl) : [];
+    if (items.length) { spark($('#plShuffleBtn')); player.playList(items, -1, { shuffle: true }); }
   };
   $('#plMenuBtn').onclick = playlistMenu;
   $('#fileInput').addEventListener('change', async (e) => {
@@ -1199,8 +1279,15 @@ function bind() {
   $('#playBtn').onclick = player.toggle;
   $('#prevBtn').onclick = player.prev;
   $('#nextBtn').onclick = () => player.next();
-  $('#shuffleBtn').onclick = () => player.setShuffle(!player.state.shuffle);
-  $('#repeatBtn').onclick = player.cycleRepeat;
+  $('#shuffleBtn').onclick = () => {
+    const on = !player.state.shuffle;
+    player.setShuffle(on);
+    if (on) spark($('#shuffleBtn'));
+  };
+  $('#repeatBtn').onclick = () => {
+    player.cycleRepeat();
+    if (player.state.repeat !== 'off') spark($('#repeatBtn'));
+  };
 
   const seek = $('#seekBar');
   seek.addEventListener('input', () => {
@@ -1249,7 +1336,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 34;
+const APP_VERSION = 36;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {
