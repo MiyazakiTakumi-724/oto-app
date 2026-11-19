@@ -30,7 +30,15 @@ function getAgent() {
   try {
     const cookies = JSON.parse(raw);
     if (Array.isArray(cookies) && cookies.length > 0) {
-      return ytdl.createAgent(cookies);
+      const cleaned = cookies
+        .filter((c) => c && c.name && c.value)
+        .map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain || '.youtube.com',
+          path: c.path || '/',
+        }));
+      if (cleaned.length > 0) return ytdl.createAgent(cleaned);
     }
   } catch (e) {
     console.warn('YOUTUBE_COOKIES のJSONパースに失敗しました:', e.message);
@@ -38,7 +46,27 @@ function getAgent() {
   return undefined;
 }
 
-// サムネイル取得用プロキシ（CORS回避してジャケット画像をIndexedDBに保存するため）
+async function fetchInfoWithFallback(videoUrl, agent) {
+  const attempts = [
+    { ...(agent ? { agent } : {}), playerClients: ['TV', 'WEB_EMBEDDED', 'WEB'] },
+    { ...(agent ? { agent } : {}), playerClients: ['IOS', 'ANDROID'] },
+    ...(agent ? [{ agent }] : [{}]),
+  ];
+
+  let lastErr;
+  for (const opts of attempts) {
+    try {
+      const info = await ytdl.getInfo(videoUrl, opts);
+      const audios = ytdl.filterFormats(info.formats, 'audioonly');
+      if (audios.length > 0) return { info, audios };
+    } catch (e) {
+      lastErr = e;
+      console.warn('[ytdl attempt failed]', opts.playerClients || 'default', e?.message);
+    }
+  }
+  throw lastErr || new Error('Failed to find any playable formats');
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const thumbId = searchParams.get('thumb');
@@ -61,7 +89,6 @@ export async function GET(request) {
   return new Response(null, { status: 404 });
 }
 
-// YouTube URL → 音声ファイル（M4A優先）のストリーミング返却
 export async function POST(request) {
   let body;
   try {
@@ -78,12 +105,7 @@ export async function POST(request) {
   try {
     const agent = getAgent();
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const info = await ytdl.getInfo(videoUrl, agent ? { agent } : undefined);
-
-    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-    if (!audioFormats.length) {
-      return Response.json({ error: 'この動画から音声トラックを取得できませんでした' }, { status: 422 });
-    }
+    const { info, audios: audioFormats } = await fetchInfoWithFallback(videoUrl, agent);
 
     // iOS Safari 互換性のため audio/mp4 (M4A/AAC) を最優先で選ぶ
     const mp4Audios = audioFormats
@@ -103,7 +125,6 @@ export async function POST(request) {
       ...(agent ? { agent } : {}),
     });
 
-    // Vercelの4.5MB制限を回避するためWeb標準ストリームで逐次返却
     const webStream = new ReadableStream({
       start(controller) {
         nodeStream.on('data', (chunk) => controller.enqueue(chunk));
@@ -134,12 +155,12 @@ export async function POST(request) {
 
     if (/Sign in to confirm|bot|429|LOGIN_REQUIRED/i.test(msg)) {
       return Response.json(
-        { error: 'YouTubeのボット判定によりブロックされました。Vercelの環境変数 YOUTUBE_COOKIES を設定してください。' },
+        { error: 'YouTubeのボット判定によりブロックされました。YOUTUBE_COOKIES を更新してください。' },
         { status: 502 }
       );
     }
     return Response.json(
-      { error: '音声の取り込みに失敗しました。非公開動画や年齢制限動画は取り込めない場合があります。' },
+      { error: `音声の取り込みに失敗しました (${msg})` },
       { status: 500 }
     );
   }
