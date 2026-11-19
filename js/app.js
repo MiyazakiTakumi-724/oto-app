@@ -1446,7 +1446,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {
