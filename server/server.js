@@ -118,9 +118,11 @@ app.post('/api/youtube', async (req, res) => {
         const outTpl = path.join(tmpDir, 'audio.%(ext)s');
         const args = [
             '--no-playlist',
-            '--no-warnings',
-            '--js-runtimes', 'node',
-            '-f', 'bestaudio[ext=m4a]/bestaudio',
+            '--js-runtimes', 'deno',
+            '--remote-components', 'ejs:github',
+            '-f', 'bestaudio[ext=m4a]/bestaudio/best',
+            '-x',
+            '--audio-format', 'm4a',
             '--write-info-json',
             '-o', outTpl,
         ];
