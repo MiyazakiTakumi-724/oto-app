@@ -1,0 +1,10 @@
+{
+    "regions": [
+        "hnd1"
+    ],
+    "functions": {
+        "api/youtube.js": {
+            "maxDuration": 60
+        }
+    }
+}

@@ -1,5 +1,5 @@
 // アプリ本体をキャッシュしてオフラインでも起動できるようにする(音声データは IndexedDB 側)
-const CACHE = 'oto-v36'; // js/app.js の APP_VERSION と合わせる
+const CACHE = 'oto-v37'; // js/app.js の APP_VERSION と合わせる
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/app.js', 'js/player.js', 'js/db.js', 'js/tags.js', 'js/fx.js', 'js/sync.js', 'js/config.js',
@@ -22,6 +22,7 @@ self.addEventListener('activate', (e) => {
 // 同じサイトのファイルは「ネット優先・失敗したらキャッシュ」。更新がすぐ反映され、圏外でも開ける
 // GitHub Pages はファイルをブラウザに10分ほど覚えさせるので、毎回サーバーに新しいか確かめる(no-cache)
 self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET' || new URL(e.request.url).pathname.startsWith('/api/')) return;
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   const req = e.request.mode === 'navigate'

@@ -1,355 +1,396 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>oto</title>
-<meta name="description" content="自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー">
-<meta name="theme-color" content="#121212">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="oto">
-<meta property="og:type" content="website">
-<meta property="og:title" content="oto 音楽プレイヤー">
-<meta property="og:description" content="自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー">
-<meta property="og:url" content="https://miyazakitakumi-724.github.io/oto-app/">
-<meta property="og:image" content="https://miyazakitakumi-724.github.io/oto-app/icons/og-image.png?v=2">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>oto</title>
+  <meta name="description" content="自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー">
+  <meta name="theme-color" content="#121212">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="oto">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="oto 音楽プレイヤー">
+  <meta property="og:description" content="自分の音楽ファイルとYouTube公式プレイヤーで聴く、スマホ向け音楽プレイヤー">
+  <meta property="og:url" content="https://miyazakitakumi-724.github.io/oto-app/">
+  <meta property="og:image" content="https://miyazakitakumi-724.github.io/oto-app/icons/og-image.png?v=2">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-<header class="topbar">
-  <h1 id="viewTitle">ライブラリ</h1>
-  <button id="backBtn" class="icon-btn hidden" aria-label="戻る">
-    <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
-  </button>
-  <img class="brand" src="icons/icon.svg" alt="oto" width="30" height="30">
-</header>
-
-<main id="main">
-  <!-- ライブラリ -->
-  <section id="view-library" class="view">
-    <div id="syncBanner" class="sync-banner hidden">
-      <span>同期を続けるには、Googleにログインし直してください。</span>
-      <button id="syncBannerBtn" class="pill primary" type="button">ログイン</button>
-    </div>
-    <div class="search">
-      <input id="searchInput" type="search" placeholder="曲名・アーティストで検索" autocomplete="off">
-    </div>
-    <div class="row-actions">
-      <button id="playAllBtn" class="pill">▶ すべて再生</button>
-      <button id="shuffleAllBtn" class="pill">⤨ シャッフル</button>
-    </div>
-    <label class="check-row"><input id="hideYoutube" type="checkbox" class="check"> YouTubeの曲を除く</label>
-    <ul id="libraryList" class="track-list"></ul>
-    <div id="libraryEmpty" class="empty hidden">
-      <img class="empty-logo" src="icons/icon.svg" alt="" width="88" height="88">
-      <p>まだ曲がありません。下の「追加」から音楽ファイルかYouTubeのURLを追加してください。</p>
-    </div>
-  </section>
-
-  <!-- プレイリスト一覧 -->
-  <section id="view-playlists" class="view hidden">
-    <button id="newPlaylistBtn" class="pill wide">＋ 新しいプレイリスト</button>
-    <ul id="playlistList" class="playlist-list"></ul>
-    <p id="playlistEmpty" class="empty hidden">プレイリストはまだありません。</p>
-  </section>
-
-  <!-- プレイリスト詳細 -->
-  <section id="view-playlist" class="view hidden">
-    <div class="row-actions">
-      <button id="plPlayBtn" class="pill">▶ 再生</button>
-      <button id="plShuffleBtn" class="pill">⤨ シャッフル</button>
-      <button id="plMenuBtn" class="pill">…</button>
-    </div>
-    <ul id="playlistTracks" class="track-list"></ul>
-    <p id="playlistTracksEmpty" class="empty hidden">曲の「…」メニューから、このプレイリストに追加できます。</p>
-  </section>
-
-  <!-- 追加 -->
-  <section id="view-add" class="view hidden">
-    <div class="card">
-      <h2>Googleドライブで同期</h2>
-      <p id="syncStatus" class="muted sync-status"></p>
-      <div class="sync-actions">
-        <button id="syncLoginBtn" class="pill wide primary" type="button">Googleでログインして同期</button>
-        <button id="syncNowBtn" class="pill" type="button">今すぐ同期</button>
-        <button id="syncLogoutBtn" class="pill" type="button">同期をやめる</button>
-      </div>
-      <p class="muted small"><a href="privacy.html" class="link">プライバシーポリシー</a></p>
-    </div>
-    <div class="card">
-      <h2>端末の音楽ファイル</h2>
-      <p class="muted">MP3・M4A・AACなど。曲名やジャケットはファイルの情報から読み取ります。同期をオンにすると、自分のGoogleドライブにも保存されます。</p>
-      <label class="pill wide file-label">
-        ファイルを選ぶ
-        <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac,.opus" multiple hidden>
-      </label>
-      <p id="importStatus" class="muted small"></p>
-    </div>
-    <div class="card">
-      <h2>YouTubeの動画</h2>
-      <p class="muted">動画のURLを貼ると、YouTube公式の埋め込みプレイヤーで再生します。YouTube側の仕様で、画面を消すと止まる場合があります。</p>
-      <form id="ytForm" class="yt-form">
-        <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." required>
-        <button class="pill" type="submit">追加</button>
-      </form>
-      <p id="ytStatus" class="muted small"></p>
-    </div>
-    <div class="card">
-      <h2>保存容量</h2>
-      <p id="storageInfo" class="muted small">確認中…</p>
-      <p id="appVersion" class="muted small"></p>
-    </div>
-  </section>
-  <!-- サウンド -->
-  <section id="view-sound" class="view hidden">
-    <p class="muted small sound-note">端末の音楽ファイルに効きます。YouTubeの曲は公式プレイヤーの音声に手を加えられないため、再生速度だけが反映されます。</p>
-
-    <div class="card">
-      <h2>音量</h2>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxVolume">アプリの音量</label>
-          <output id="fxVolumeVal" for="fxVolume"></output>
-        </div>
-        <input id="fxVolume" type="range" min="0" max="100" step="1">
-        <p class="muted small">スマホ本体の音量とは別に、このアプリの音量を調整します。再生画面からも変えられます。</p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>曲のつなぎ方</h2>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxCrossfade">クロスフェード</label>
-          <output id="fxCrossfadeVal" for="fxCrossfade"></output>
-        </div>
-        <input id="fxCrossfade" type="range" min="0" max="12" step="1">
-        <p class="muted small">曲の終わりと次の曲の始まりを重ねて、途切れずにつなぎます。</p>
-      </div>
-      <label class="switch-row" for="fxTrim">
-        <span><b>無音カット</b><span class="muted small">曲の最初と最後の無音を飛ばします</span></span>
-        <input id="fxTrim" type="checkbox" class="switch">
-      </label>
-    </div>
-
-    <div class="card">
-      <h2>音質</h2>
-      <label class="switch-row" for="fxNormalize">
-        <span><b>音量の自動調整</b><span class="muted small">曲ごとの音量の差をそろえます</span></span>
-        <input id="fxNormalize" type="checkbox" class="switch">
-      </label>
-      <label class="switch-row" for="fxNight">
-        <span><b>ナイトモード</b><span class="muted small">小さい音を聞きやすくし、大きい音を抑えます</span></span>
-        <input id="fxNight" type="checkbox" class="switch">
-      </label>
-      <div class="setting">
-        <div class="setting-head"><span>イコライザー</span></div>
-        <div id="fxPresets" class="chips"></div>
-        <div id="fxEq" class="eq"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>立体音響</h2>
-      <p class="muted small">イヤホンやヘッドホンで聴くと効果がわかりやすくなります。</p>
-      <div class="setting">
-        <div class="setting-head"><span>モード</span></div>
-        <div id="fxSpatial" class="segmented" role="radiogroup" aria-label="立体音響のモード">
-          <button type="button" data-mode="off" role="radio">オフ</button>
-          <button type="button" data-mode="8d" role="radio">8Dオーディオ</button>
-          <button type="button" data-mode="surround" role="radio">サラウンド</button>
-        </div>
-        <p id="fxSpatialHelp" class="muted small"></p>
-      </div>
-      <div id="fxRotationRow" class="setting">
-        <div class="setting-head">
-          <label for="fxRotation">1周する時間</label>
-          <output id="fxRotationVal" for="fxRotation"></output>
-        </div>
-        <input id="fxRotation" type="range" min="2" max="30" step="1">
-      </div>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxWidth">ステレオ拡張</label>
-          <output id="fxWidthVal" for="fxWidth"></output>
-        </div>
-        <input id="fxWidth" type="range" min="0" max="100" step="5">
-        <p class="muted small">左右の広がりを強くして、音を広く感じさせます。</p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>ボーカルと伴奏</h2>
-      <div id="fxVocalPresets" class="chips">
-        <button type="button" class="chip" data-vocal="100" data-inst="100">そのまま</button>
-        <button type="button" class="chip" data-vocal="20" data-inst="100">カラオケ</button>
-        <button type="button" class="chip" data-vocal="140" data-inst="85">ボーカル強調</button>
-        <button type="button" class="chip" data-vocal="130" data-inst="30">ボーカルだけ</button>
-      </div>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxVocal">ボーカル</label>
-          <output id="fxVocalVal" for="fxVocal"></output>
-        </div>
-        <input id="fxVocal" type="range" min="0" max="200" step="5">
-      </div>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxInst">伴奏</label>
-          <output id="fxInstVal" for="fxInst"></output>
-        </div>
-        <input id="fxInst" type="range" min="0" max="200" step="5">
-        <p class="muted small">中央から聞こえる声の帯域をボーカルとして分けます。曲によっては、ベースやドラムの一部も一緒に変わります。</p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>表示</h2>
-      <label class="switch-row" for="fxViz">
-        <span><b>ビジュアライザー</b><span class="muted small">再生画面に、音に合わせて動くバーを表示します</span></span>
-        <input id="fxViz" type="checkbox" class="switch">
-      </label>
-    </div>
-
-    <div class="card">
-      <h2>加工</h2>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxReverb">ホール残響</label>
-          <output id="fxReverbVal" for="fxReverb"></output>
-        </div>
-        <input id="fxReverb" type="range" min="0" max="100" step="5">
-      </div>
-      <div class="setting">
-        <div class="setting-head">
-          <label for="fxSpeed">再生速度</label>
-          <output id="fxSpeedVal" for="fxSpeed"></output>
-        </div>
-        <input id="fxSpeed" type="range" min="0.5" max="2" step="0.05">
-        <p class="muted small">音程は変わりません。</p>
-      </div>
-    </div>
-
-    <button id="fxReset" class="pill wide">すべて元に戻す</button>
-    <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、「すべて元に戻す」を押してアプリを開き直してください。</p>
-  </section>
-</main>
-
-<!-- YouTube 埋め込みプレイヤー置き場(再生中は常に表示) -->
-<div id="ytDock" class="yt-dock hidden"><div id="ytPlayer"></div></div>
-
-<!-- ミニプレイヤー -->
-<div id="miniPlayer" class="mini hidden" role="button" aria-label="再生画面を開く">
-  <div class="mini-progress"><div id="miniProgressBar"></div></div>
-  <div id="miniBody" class="mini-body">
-    <img id="miniArt" class="art-sm" alt="">
-    <div class="mini-text">
-      <div id="miniTitle" class="title"></div>
-      <div id="miniArtist" class="sub"></div>
-    </div>
-  </div>
-  <button id="miniPlayBtn" class="icon-btn" aria-label="再生/一時停止"></button>
-  <button id="miniNextBtn" class="icon-btn" aria-label="次の曲">
-    <svg viewBox="0 0 24 24"><path class="fill" d="M6 5l9 7-9 7zM17 5h2v14h-2z"/></svg>
-  </button>
-</div>
-
-<!-- タブバー -->
-<nav class="tabbar">
-  <button data-tab="library" class="active">
-    <svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h10"/></svg><span>ライブラリ</span>
-  </button>
-  <button data-tab="playlists">
-    <svg viewBox="0 0 24 24"><path d="M4 6h11M4 12h11M4 18h7M18 6v10.5"/><circle cx="16" cy="17" r="2.5"/></svg><span>プレイリスト</span>
-  </button>
-  <button data-tab="sound">
-    <svg viewBox="0 0 24 24"><path d="M5 4v16M12 4v16M19 4v16"/><circle class="fill" cx="5" cy="14" r="2.4"/><circle class="fill" cx="12" cy="8" r="2.4"/><circle class="fill" cx="19" cy="15" r="2.4"/></svg><span>サウンド</span>
-  </button>
-  <button data-tab="add">
-    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>追加</span>
-  </button>
-</nav>
-
-<!-- 再生画面 -->
-<div id="nowPlaying" class="sheet" aria-hidden="true">
-  <div class="sheet-head">
-    <button id="closeNowBtn" class="icon-btn" aria-label="閉じる">
-      <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+  <header class="topbar">
+    <h1 id="viewTitle">ライブラリ</h1>
+    <button id="backBtn" class="icon-btn hidden" aria-label="戻る">
+      <svg viewBox="0 0 24 24">
+        <path d="M15 5l-7 7 7 7" />
+      </svg>
     </button>
-    <span class="muted small">再生中</span>
-    <button id="queueBtn" class="icon-btn" aria-label="再生キュー">
-      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    <img class="brand" src="icons/icon.svg" alt="oto" width="30" height="30">
+  </header>
+
+  <main id="main">
+    <!-- ライブラリ -->
+    <section id="view-library" class="view">
+      <div id="syncBanner" class="sync-banner hidden">
+        <span>同期を続けるには、Googleにログインし直してください。</span>
+        <button id="syncBannerBtn" class="pill primary" type="button">ログイン</button>
+      </div>
+      <div class="search">
+        <input id="searchInput" type="search" placeholder="曲名・アーティストで検索" autocomplete="off">
+      </div>
+      <div class="row-actions">
+        <button id="playAllBtn" class="pill">▶ すべて再生</button>
+        <button id="shuffleAllBtn" class="pill">⤨ シャッフル</button>
+      </div>
+      <label class="check-row"><input id="hideYoutube" type="checkbox" class="check"> YouTubeの曲を除く</label>
+      <ul id="libraryList" class="track-list"></ul>
+      <div id="libraryEmpty" class="empty hidden">
+        <img class="empty-logo" src="icons/icon.svg" alt="" width="88" height="88">
+        <p>まだ曲がありません。下の「追加」から音楽ファイルかYouTubeのURLを追加してください。</p>
+      </div>
+    </section>
+
+    <!-- プレイリスト一覧 -->
+    <section id="view-playlists" class="view hidden">
+      <button id="newPlaylistBtn" class="pill wide">＋ 新しいプレイリスト</button>
+      <ul id="playlistList" class="playlist-list"></ul>
+      <p id="playlistEmpty" class="empty hidden">プレイリストはまだありません。</p>
+    </section>
+
+    <!-- プレイリスト詳細 -->
+    <section id="view-playlist" class="view hidden">
+      <div class="row-actions">
+        <button id="plPlayBtn" class="pill">▶ 再生</button>
+        <button id="plShuffleBtn" class="pill">⤨ シャッフル</button>
+        <button id="plMenuBtn" class="pill">…</button>
+      </div>
+      <ul id="playlistTracks" class="track-list"></ul>
+      <p id="playlistTracksEmpty" class="empty hidden">曲の「…」メニューから、このプレイリストに追加できます。</p>
+    </section>
+
+    <!-- 追加 -->
+    <!-- 追加 -->
+    <section id="view-add" class="view hidden">
+      <div class="card">
+        <h2>Googleドライブで同期</h2>
+        <p id="syncStatus" class="muted sync-status"></p>
+        <div class="sync-actions">
+          <button id="syncLoginBtn" class="pill wide primary" type="button">Googleでログインして同期</button>
+          <button id="syncNowBtn" class="pill" type="button">今すぐ同期</button>
+          <button id="syncLogoutBtn" class="pill" type="button">同期をやめる</button>
+        </div>
+        <p class="muted small"><a href="privacy.html" class="link">プライバシーポリシー</a></p>
+      </div>
+      <div class="card">
+        <h2>端末の音楽ファイル</h2>
+        <p class="muted">MP3・M4A・AACなど。曲名やジャケットはファイルの情報から読み取ります。同期をオンにすると、自分のGoogleドライブにも保存されます。</p>
+        <label class="pill wide file-label">
+          ファイルを選ぶ
+          <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac,.opus" multiple hidden>
+        </label>
+        <p id="importStatus" class="muted small"></p>
+      </div>
+      <div class="card">
+        <h2>YouTubeから音声を取り込む</h2>
+        <p class="muted">動画のURLを貼ると、音声ファイルとして自動で取り込みます。画面を消しての再生やサウンド加工、Googleドライブ同期にも対応します。</p>
+        <form id="ytForm" class="yt-form">
+          <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." required>
+          <button id="ytSubmitBtn" class="pill" type="submit">取り込む</button>
+        </form>
+        <p id="ytStatus" class="muted small"></p>
+      </div>
+      <div class="card">
+        <h2>保存容量</h2>
+        <p id="storageInfo" class="muted small">確認中…</p>
+        <p id="appVersion" class="muted small"></p>
+      </div>
+    </section>
+    <!-- サウンド -->
+    <section id="view-sound" class="view hidden">
+      <p class="muted small sound-note">端末の音楽ファイルに効きます。YouTubeの曲は公式プレイヤーの音声に手を加えられないため、再生速度だけが反映されます。</p>
+
+      <div class="card">
+        <h2>音量</h2>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxVolume">アプリの音量</label>
+            <output id="fxVolumeVal" for="fxVolume"></output>
+          </div>
+          <input id="fxVolume" type="range" min="0" max="100" step="1">
+          <p class="muted small">スマホ本体の音量とは別に、このアプリの音量を調整します。再生画面からも変えられます。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>曲のつなぎ方</h2>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxCrossfade">クロスフェード</label>
+            <output id="fxCrossfadeVal" for="fxCrossfade"></output>
+          </div>
+          <input id="fxCrossfade" type="range" min="0" max="12" step="1">
+          <p class="muted small">曲の終わりと次の曲の始まりを重ねて、途切れずにつなぎます。</p>
+        </div>
+        <label class="switch-row" for="fxTrim">
+          <span><b>無音カット</b><span class="muted small">曲の最初と最後の無音を飛ばします</span></span>
+          <input id="fxTrim" type="checkbox" class="switch">
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>音質</h2>
+        <label class="switch-row" for="fxNormalize">
+          <span><b>音量の自動調整</b><span class="muted small">曲ごとの音量の差をそろえます</span></span>
+          <input id="fxNormalize" type="checkbox" class="switch">
+        </label>
+        <label class="switch-row" for="fxNight">
+          <span><b>ナイトモード</b><span class="muted small">小さい音を聞きやすくし、大きい音を抑えます</span></span>
+          <input id="fxNight" type="checkbox" class="switch">
+        </label>
+        <div class="setting">
+          <div class="setting-head"><span>イコライザー</span></div>
+          <div id="fxPresets" class="chips"></div>
+          <div id="fxEq" class="eq"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>立体音響</h2>
+        <p class="muted small">イヤホンやヘッドホンで聴くと効果がわかりやすくなります。</p>
+        <div class="setting">
+          <div class="setting-head"><span>モード</span></div>
+          <div id="fxSpatial" class="segmented" role="radiogroup" aria-label="立体音響のモード">
+            <button type="button" data-mode="off" role="radio">オフ</button>
+            <button type="button" data-mode="8d" role="radio">8Dオーディオ</button>
+            <button type="button" data-mode="surround" role="radio">サラウンド</button>
+          </div>
+          <p id="fxSpatialHelp" class="muted small"></p>
+        </div>
+        <div id="fxRotationRow" class="setting">
+          <div class="setting-head">
+            <label for="fxRotation">1周する時間</label>
+            <output id="fxRotationVal" for="fxRotation"></output>
+          </div>
+          <input id="fxRotation" type="range" min="2" max="30" step="1">
+        </div>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxWidth">ステレオ拡張</label>
+            <output id="fxWidthVal" for="fxWidth"></output>
+          </div>
+          <input id="fxWidth" type="range" min="0" max="100" step="5">
+          <p class="muted small">左右の広がりを強くして、音を広く感じさせます。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>ボーカルと伴奏</h2>
+        <div id="fxVocalPresets" class="chips">
+          <button type="button" class="chip" data-vocal="100" data-inst="100">そのまま</button>
+          <button type="button" class="chip" data-vocal="20" data-inst="100">カラオケ</button>
+          <button type="button" class="chip" data-vocal="140" data-inst="85">ボーカル強調</button>
+          <button type="button" class="chip" data-vocal="130" data-inst="30">ボーカルだけ</button>
+        </div>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxVocal">ボーカル</label>
+            <output id="fxVocalVal" for="fxVocal"></output>
+          </div>
+          <input id="fxVocal" type="range" min="0" max="200" step="5">
+        </div>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxInst">伴奏</label>
+            <output id="fxInstVal" for="fxInst"></output>
+          </div>
+          <input id="fxInst" type="range" min="0" max="200" step="5">
+          <p class="muted small">中央から聞こえる声の帯域をボーカルとして分けます。曲によっては、ベースやドラムの一部も一緒に変わります。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>表示</h2>
+        <label class="switch-row" for="fxViz">
+          <span><b>ビジュアライザー</b><span class="muted small">再生画面に、音に合わせて動くバーを表示します</span></span>
+          <input id="fxViz" type="checkbox" class="switch">
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>加工</h2>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxReverb">ホール残響</label>
+            <output id="fxReverbVal" for="fxReverb"></output>
+          </div>
+          <input id="fxReverb" type="range" min="0" max="100" step="5">
+        </div>
+        <div class="setting">
+          <div class="setting-head">
+            <label for="fxSpeed">再生速度</label>
+            <output id="fxSpeedVal" for="fxSpeed"></output>
+          </div>
+          <input id="fxSpeed" type="range" min="0.5" max="2" step="0.05">
+          <p class="muted small">音程は変わりません。</p>
+        </div>
+      </div>
+
+      <button id="fxReset" class="pill wide">すべて元に戻す</button>
+      <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、「すべて元に戻す」を押してアプリを開き直してください。</p>
+    </section>
+  </main>
+
+  <!-- YouTube 埋め込みプレイヤー置き場(再生中は常に表示) -->
+  <div id="ytDock" class="yt-dock hidden">
+    <div id="ytPlayer"></div>
+  </div>
+
+  <!-- ミニプレイヤー -->
+  <div id="miniPlayer" class="mini hidden" role="button" aria-label="再生画面を開く">
+    <div class="mini-progress">
+      <div id="miniProgressBar"></div>
+    </div>
+    <div id="miniBody" class="mini-body">
+      <img id="miniArt" class="art-sm" alt="">
+      <div class="mini-text">
+        <div id="miniTitle" class="title"></div>
+        <div id="miniArtist" class="sub"></div>
+      </div>
+    </div>
+    <button id="miniPlayBtn" class="icon-btn" aria-label="再生/一時停止"></button>
+    <button id="miniNextBtn" class="icon-btn" aria-label="次の曲">
+      <svg viewBox="0 0 24 24">
+        <path class="fill" d="M6 5l9 7-9 7zM17 5h2v14h-2z" />
+      </svg>
     </button>
   </div>
-  <div id="artWrap" class="art-wrap"><img id="npArt" class="art-lg" alt=""></div>
-  <canvas id="viz" class="viz hidden" aria-hidden="true"></canvas>
-  <div class="np-text">
-    <div id="npTitle" class="title"></div>
-    <div id="npArtist" class="sub"></div>
-  </div>
-  <div class="seek">
-    <input id="seekBar" type="range" min="0" max="1000" value="0" aria-label="再生位置">
-    <div class="times"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
-  </div>
-  <div class="controls">
-    <button id="shuffleBtn" class="icon-btn toggle" aria-label="シャッフル">
-      <svg viewBox="0 0 24 24"><path d="M4 7h3l10 10h3M4 17h3l3-3M14 10l3-3h3M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>
-    </button>
-    <button id="prevBtn" class="icon-btn big" aria-label="前の曲">
-      <svg viewBox="0 0 24 24"><path class="fill" d="M18 5l-9 7 9 7zM5 5h2v14H5z"/></svg>
-    </button>
-    <button id="playBtn" class="play-btn" aria-label="再生/一時停止"></button>
-    <button id="nextBtn" class="icon-btn big" aria-label="次の曲">
-      <svg viewBox="0 0 24 24"><path class="fill" d="M6 5l9 7-9 7zM17 5h2v14h-2z"/></svg>
-    </button>
-    <button id="repeatBtn" class="icon-btn toggle" aria-label="リピート">
-      <svg viewBox="0 0 24 24"><path d="M4 11V9a3 3 0 013-3h12l-3-3M20 13v2a3 3 0 01-3 3H5l3 3"/></svg>
-      <span id="repeatOne" class="badge hidden">1</span>
-    </button>
-  </div>
-  <div class="np-volume">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/></svg>
-    <input id="npVolume" type="range" min="0" max="100" step="1" aria-label="音量">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12"/></svg>
-  </div>
-  <div id="queuePanel" class="queue hidden">
-    <h3>次に再生</h3>
-    <ul id="queueList" class="track-list compact"></ul>
-  </div>
-</div>
 
-<!-- アクションシート -->
-<div id="actionSheet" class="action-sheet hidden">
-  <div class="action-backdrop"></div>
-  <div class="action-panel">
-    <div id="actionTitle" class="action-title"></div>
-    <div id="actionItems"></div>
-    <button class="action-item cancel" data-cancel>キャンセル</button>
-  </div>
-</div>
+  <!-- タブバー -->
+  <nav class="tabbar">
+    <button data-tab="library" class="active">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 5h16M4 12h16M4 19h10" />
+      </svg><span>ライブラリ</span>
+    </button>
+    <button data-tab="playlists">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 6h11M4 12h11M4 18h7M18 6v10.5" />
+        <circle cx="16" cy="17" r="2.5" />
+      </svg><span>プレイリスト</span>
+    </button>
+    <button data-tab="sound">
+      <svg viewBox="0 0 24 24">
+        <path d="M5 4v16M12 4v16M19 4v16" />
+        <circle class="fill" cx="5" cy="14" r="2.4" />
+        <circle class="fill" cx="12" cy="8" r="2.4" />
+        <circle class="fill" cx="19" cy="15" r="2.4" />
+      </svg><span>サウンド</span>
+    </button>
+    <button data-tab="add">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </svg><span>追加</span>
+    </button>
+  </nav>
 
-<div id="dialog" class="action-sheet hidden">
-  <div class="action-backdrop"></div>
-  <form id="dialogForm" class="dialog-panel">
-    <div id="dialogTitle" class="dialog-title"></div>
-    <div id="dialogFields" class="dialog-fields"></div>
-    <div class="dialog-buttons">
-      <button id="dialogCancel" type="button" class="pill">キャンセル</button>
-      <button id="dialogOk" type="submit" class="pill primary">OK</button>
+  <!-- 再生画面 -->
+  <div id="nowPlaying" class="sheet" aria-hidden="true">
+    <div class="sheet-head">
+      <button id="closeNowBtn" class="icon-btn" aria-label="閉じる">
+        <svg viewBox="0 0 24 24">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <span class="muted small">再生中</span>
+      <button id="queueBtn" class="icon-btn" aria-label="再生キュー">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+      </button>
     </div>
-  </form>
-</div>
+    <div id="artWrap" class="art-wrap"><img id="npArt" class="art-lg" alt=""></div>
+    <canvas id="viz" class="viz hidden" aria-hidden="true"></canvas>
+    <div class="np-text">
+      <div id="npTitle" class="title"></div>
+      <div id="npArtist" class="sub"></div>
+    </div>
+    <div class="seek">
+      <input id="seekBar" type="range" min="0" max="1000" value="0" aria-label="再生位置">
+      <div class="times"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
+    </div>
+    <div class="controls">
+      <button id="shuffleBtn" class="icon-btn toggle" aria-label="シャッフル">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 7h3l10 10h3M4 17h3l3-3M14 10l3-3h3M18 4l3 3-3 3M18 14l3 3-3 3" />
+        </svg>
+      </button>
+      <button id="prevBtn" class="icon-btn big" aria-label="前の曲">
+        <svg viewBox="0 0 24 24">
+          <path class="fill" d="M18 5l-9 7 9 7zM5 5h2v14H5z" />
+        </svg>
+      </button>
+      <button id="playBtn" class="play-btn" aria-label="再生/一時停止"></button>
+      <button id="nextBtn" class="icon-btn big" aria-label="次の曲">
+        <svg viewBox="0 0 24 24">
+          <path class="fill" d="M6 5l9 7-9 7zM17 5h2v14h-2z" />
+        </svg>
+      </button>
+      <button id="repeatBtn" class="icon-btn toggle" aria-label="リピート">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 11V9a3 3 0 013-3h12l-3-3M20 13v2a3 3 0 01-3 3H5l3 3" />
+        </svg>
+        <span id="repeatOne" class="badge hidden">1</span>
+      </button>
+    </div>
+    <div class="np-volume">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="fill" d="M4 9h4l5-4v14l-5-4H4z" />
+      </svg>
+      <input id="npVolume" type="range" min="0" max="100" step="1" aria-label="音量">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="fill" d="M4 9h4l5-4v14l-5-4H4z" />
+        <path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" />
+      </svg>
+    </div>
+    <div id="queuePanel" class="queue hidden">
+      <h3>次に再生</h3>
+      <ul id="queueList" class="track-list compact"></ul>
+    </div>
+  </div>
 
-<div id="toast" class="toast hidden"></div>
+  <!-- アクションシート -->
+  <div id="actionSheet" class="action-sheet hidden">
+    <div class="action-backdrop"></div>
+    <div class="action-panel">
+      <div id="actionTitle" class="action-title"></div>
+      <div id="actionItems"></div>
+      <button class="action-item cancel" data-cancel>キャンセル</button>
+    </div>
+  </div>
 
-<script type="module" src="js/app.js"></script>
+  <div id="dialog" class="action-sheet hidden">
+    <div class="action-backdrop"></div>
+    <form id="dialogForm" class="dialog-panel">
+      <div id="dialogTitle" class="dialog-title"></div>
+      <div id="dialogFields" class="dialog-fields"></div>
+      <div class="dialog-buttons">
+        <button id="dialogCancel" type="button" class="pill">キャンセル</button>
+        <button id="dialogOk" type="submit" class="pill primary">OK</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="js/app.js"></script>
 </body>
+
 </html>

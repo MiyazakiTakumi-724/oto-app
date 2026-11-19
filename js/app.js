@@ -3,6 +3,7 @@ import * as player from './player.js';
 import { readTags } from './tags.js';
 import * as fx from './fx.js';
 import * as sync from './sync.js';
+import { YT_API_ENDPOINT } from './config.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -105,7 +106,7 @@ function collapseRows(rows) {
       { height: `${h}px`, minHeight: '0px', opacity: 1, transform: 'none' },
       { height: `${h}px`, minHeight: '0px', opacity: 0, transform: 'translateX(-24px)', offset: 0.45 },
       { height: '0px', minHeight: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0, transform: 'translateX(-24px)' },
-    ], { duration: 420, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'forwards' }).finished.catch(() => {});
+    ], { duration: 420, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'forwards' }).finished.catch(() => { });
   }));
 }
 
@@ -125,7 +126,7 @@ function flyArt(from, to, { radiusFrom, radiusTo, duration = 460 } = {}) {
     { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${sx}, ${sy})`, borderRadius: `${radiusFrom / sx}px` },
     { transform: 'none', borderRadius: `${radiusTo}px` },
   ], { duration, easing: EASE_OUT, fill: 'forwards' });
-  return anim.finished.catch(() => {}).then(() => img.remove());
+  return anim.finished.catch(() => { }).then(() => img.remove());
 }
 
 // ---------- ごほうびアニメーション(達成した瞬間の演出) ----------
@@ -195,8 +196,8 @@ function toast(msg, { celebrate = false } = {}) {
 }
 
 function withArt(t) {
-  if (t.type === 'youtube') t.artUrl = `https://i.ytimg.com/vi/${t.ytId}/hqdefault.jpg`;
-  else if (t.picture && !t.artUrl) t.artUrl = URL.createObjectURL(t.picture);
+  if (t.picture && !t.artUrl) t.artUrl = URL.createObjectURL(t.picture);
+  else if (t.ytId && !t.artUrl) t.artUrl = `https://i.ytimg.com/vi/${t.ytId}/hqdefault.jpg`;
   return t;
 }
 
@@ -444,7 +445,7 @@ function trackMenu(t) {
   if (view === 'playlist') {
     items.push({ label: 'このプレイリストから外す', run: () => removeFromPlaylist(openPlaylistId, t.id) });
   }
-  if (t.type === 'youtube') {
+  if (t.ytId) {
     items.push({ label: 'YouTubeで開く', run: () => window.open(`https://www.youtube.com/watch?v=${t.ytId}`, '_blank') });
   }
   items.push({ label: 'ライブラリから削除', danger: true, run: () => removeTrack(t) });
@@ -576,7 +577,7 @@ async function importFiles(files) {
   if (ok > 0) toast(`${ok}曲をライブラリに追加しました`, { celebrate: true });
   await loadAll();
   updateStorageInfo();
-  if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+  if (navigator.storage?.persist) navigator.storage.persist().catch(() => { });
 }
 
 export function parseYouTubeId(input) {
@@ -595,37 +596,146 @@ export function parseYouTubeId(input) {
   return null;
 }
 
-async function fetchYtTitle(id) {
+async function fetchYtThumbnail(id) {
   try {
-    const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}`;
-    const res = await fetch(url);
+    const res = await fetch(`${YT_API_ENDPOINT}?thumb=${encodeURIComponent(id)}`);
     if (!res.ok) return null;
-    const j = await res.json();
-    return { title: j.title, artist: j.author_name };
+    return await res.blob();
   } catch {
     return null;
   }
 }
 
 async function addYouTube(e) {
+  async function fetchYtTitle(id) {
+    try {
+      const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j = await res.json();
+      return { title: j.title, artist: j.author_name };
+    } catch {
+      return null;
+    }
+  }
+
   e.preventDefault();
   const input = $('#ytInput');
   const status = $('#ytStatus');
-  const id = parseYouTubeId(input.value);
+  const submitBtn = $('#ytSubmitBtn') || $('#ytForm button[type="submit"]');
+  const rawUrl = input.value.trim();
+  const id = parseYouTubeId(rawUrl);
+
   if (!id) { status.textContent = 'YouTubeの動画URLを入力してください'; return; }
   if (tracks.some((t) => t.ytId === id)) { status.textContent = 'この動画はすでに追加されています'; return; }
-  status.textContent = '追加中…';
-  const info = await fetchYtTitle(id);
-  const track = {
-    id: db.uid(), type: 'youtube', ytId: id,
-    title: info?.title || `YouTube動画 (${id})`, artist: info?.artist || '',
-    titlePending: !info, addedAt: Date.now(),
-  };
-  await db.putTrack(track);
-  input.value = '';
-  status.textContent = `「${track.title}」を追加しました`;
-  toast(`「${track.title}」を追加しました`, { celebrate: true });
-  await loadAll();
+
+  input.disabled = true;
+  if (submitBtn) submitBtn.disabled = true;
+  status.textContent = '音声データを取得中…';
+
+  try {
+    const res = await fetch(YT_API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: rawUrl, id }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `取り込みに失敗しました (${res.status})`;
+      try {
+        const j = await res.json();
+        if (j?.error) errMsg = j.error;
+      } catch { /* JSONでない場合 */ }
+      throw new Error(errMsg);
+    }
+
+    // ストリームを受信しつつ進捗を表示
+    const total = Number(res.headers.get('Content-Length')) || 0;
+    const mime = res.headers.get('Content-Type') || 'audio/mp4';
+    const ext = res.headers.get('X-Track-Ext') || (mime.includes('mp4') ? 'm4a' : 'webm');
+
+    let audioBlob;
+    if (res.body?.getReader) {
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        if (total > 0) {
+          const pct = Math.min(99, Math.round((received / total) * 100));
+          status.textContent = `音声を取り込み中… ${pct}%`;
+        } else {
+          status.textContent = `音声を取り込み中… ${(received / 1024 / 1024).toFixed(1)}MB`;
+        }
+      }
+      audioBlob = new Blob(chunks, { type: mime });
+    } else {
+      audioBlob = await res.blob();
+    }
+
+    if (!audioBlob.size) throw new Error('音声データが空でした');
+
+    status.textContent = '曲情報を保存中…';
+    const decodeHeader = (name) => {
+      const v = res.headers.get(name);
+      if (!v) return '';
+      try { return decodeURIComponent(v); } catch { return v; }
+    };
+
+    let title = decodeHeader('X-Track-Title');
+    let artist = decodeHeader('X-Track-Artist');
+    let duration = Number(res.headers.get('X-Track-Duration')) || 0;
+
+    if (!title) {
+      const info = await fetchYtTitle(id);
+      title = info?.title || `YouTube動画 (${id})`;
+      artist = artist || info?.artist || '';
+    }
+
+    const safeName = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || id;
+    const fileName = `${safeName}.${ext}`;
+    const file = new File([audioBlob], fileName, { type: mime });
+
+    const [picture, tags] = await Promise.all([
+      fetchYtThumbnail(id),
+      duration ? Promise.resolve(null) : readTags(file).catch(() => null),
+    ]);
+    if (!duration && tags?.duration) duration = tags.duration;
+
+    const track = {
+      id: db.uid(),
+      type: 'file',
+      ytId: id,
+      title,
+      artist,
+      album: '',
+      picture: picture || tags?.picture || null,
+      duration,
+      size: file.size,
+      addedAt: Date.now(),
+      fileName,
+      mime,
+    };
+
+    await db.putTrack(track, file);
+    input.value = '';
+    status.textContent = `「${track.title}」を音声ファイルとして取り込みました`;
+    toast(`「${track.title}」を取り込みました`, { celebrate: true });
+    await loadAll();
+    rerender();
+    updateStorageInfo();
+    if (navigator.storage?.persist) navigator.storage.persist().catch(() => { });
+  } catch (err) {
+    console.error(err);
+    status.textContent = err.message || '取り込みに失敗しました';
+    toast(err.message || '取り込みに失敗しました');
+  } finally {
+    input.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 async function updateStorageInfo() {
@@ -1336,7 +1446,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {
@@ -1353,9 +1463,9 @@ function registerUpdates() {
   sw.register('sw.js').then((reg) => {
     // ホーム画面のアプリは閉じても裏で残るので、画面に戻ってきたときにも更新を確かめる
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      if (document.visibilityState === 'visible') reg.update().catch(() => { });
     });
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 async function init() {
