@@ -1478,6 +1478,9 @@ async function init() {
   sync.schedule(500);
   $('#appVersion').textContent = `oto バージョン ${APP_VERSION}`;
   registerUpdates();
+
+  fetch(YT_API_ENDPOINT.replace(/\/api\/youtube$/, '/health')).catch(() => { });
+  bind();
 }
 
 init();

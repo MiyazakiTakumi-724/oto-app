@@ -120,9 +120,8 @@ app.post('/api/youtube', async (req, res) => {
             '--no-playlist',
             '--js-runtimes', 'deno',
             '--remote-components', 'ejs:github',
+            '--concurrent-fragments', '4',
             '-f', 'bestaudio[ext=m4a]/bestaudio/best',
-            '-x',
-            '--audio-format', 'm4a',
             '--write-info-json',
             '-o', outTpl,
         ];
