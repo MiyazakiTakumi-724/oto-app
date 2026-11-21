@@ -82,6 +82,11 @@ export async function getBlob(id) {
   return run(['blobs'], 'readonly', (tx) => req2p(tx.objectStore('blobs').get(id)));
 }
 
+// 音声本体だけを消す(曲の情報はライブラリに残す)
+export async function deleteBlob(id) {
+  await run(['blobs'], 'readwrite', (tx) => { tx.objectStore('blobs').delete(id); });
+}
+
 export async function hasBlob(id) {
   return run(['blobs'], 'readonly', (tx) => req2p(tx.objectStore('blobs').getKey(id))).then((k) => k !== undefined);
 }

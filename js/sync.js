@@ -12,8 +12,9 @@ const LIBRARY_NAME = 'oto-library.json';
 const DELETED_KEEP_MS = 90 * 24 * 3600 * 1000;
 
 // ドライブに保存する曲の項目(ジャケット画像や解析結果は各端末で作り直す)
+// 再生回数や「この端末から音声を消した」印(offloaded)は端末ごとの情報なので、ここに入れない
 const TRACK_FIELDS = ['id', 'type', 'title', 'artist', 'album', 'duration', 'ytId', 'addedAt', 'updatedAt',
-  'driveId', 'mime', 'size', 'fileName', 'titlePending'];
+  'driveId', 'mime', 'size', 'fileName', 'titlePending', 'favorite', 'favoritedAt'];
 const PLAYLIST_FIELDS = ['id', 'name', 'trackIds', 'createdAt', 'updatedAt'];
 
 const pickFields = (o, fields) => Object.fromEntries(fields.filter((f) => o[f] !== undefined).map((f) => [f, o[f]]));
@@ -343,9 +344,9 @@ async function doSync() {
     }, blob);
   }
 
-  // ほかの端末で追加された曲をダウンロード
+  // ほかの端末で追加された曲をダウンロード(この端末から音声を消した曲は、再生するときまで読み込まない)
   const toDownload = [];
-  for (const t of files) if (t.driveId && !await db.hasBlob(t.id)) toDownload.push(t);
+  for (const t of files) if (t.driveId && !t.offloaded && !await db.hasBlob(t.id)) toDownload.push(t);
   for (const [i, t] of toDownload.entries()) {
     state.progress = `ダウンロード中 ${i + 1} / ${toDownload.length}「${t.title}」`;
     emit();
@@ -395,6 +396,24 @@ async function doSync() {
   state.lastSync = Date.now();
   persist();
   syncedListeners.forEach((fn) => fn());
+}
+
+// この端末から音声だけ消した曲を、ドライブから読み込む
+export async function fetchTrack(t) {
+  if (!configured() || !state.enabled || !t.driveId) throw new Error('この曲の音声はこの端末にありません');
+  if (!tokenValid()) {
+    state.needsLogin = true;
+    emit();
+    throw new Error('ドライブから読み込むには、Googleにログインし直してください');
+  }
+  let blob;
+  try {
+    blob = await download(t.driveId);
+  } catch (e) {
+    if (e instanceof AuthError) { state.needsLogin = true; emit(); throw e; }
+    throw new Error('ドライブから読み込めませんでした。通信状況を確かめてください');
+  }
+  return blob.type ? blob : new Blob([blob], { type: t.mime || 'audio/mpeg' });
 }
 
 // 書き込みがあったら同期を予約する

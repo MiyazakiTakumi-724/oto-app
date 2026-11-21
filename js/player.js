@@ -35,8 +35,12 @@ export const state = {
 };
 
 let loadToken = 0;
+let stopAfterTrack = false; // スリープタイマー「この曲が終わるまで」
+let fetchMissing = null;    // この端末に音声がない曲を読み込む処理(ドライブから)
 
 export const current = () => state.queue[state.index] || null;
+export const setStopAfterTrack = (on) => { stopAfterTrack = on; };
+export const setMissingBlobHandler = (fn) => { fetchMissing = fn; };
 
 // ---------- YouTube ----------
 let ytReady = null;
@@ -190,6 +194,15 @@ function stopFade() {
 
 function ended() {
   const t = current();
+  if (stopAfterTrack) {
+    // 止めたうえで次の曲を用意しておき、再生ボタンで続きから聴けるようにする
+    stopAfterTrack = false;
+    pause();
+    const ni = nextIndex(true);
+    if (ni >= 0 && ni !== state.index) { state.index = ni; load(false); } else seek(t ? startOf(t) : 0);
+    emit('sleep-done');
+    return;
+  }
   if (state.repeat === 'one') { seek(t ? startOf(t) : 0); play(); return; }
   next(true);
 }
@@ -212,9 +225,18 @@ async function load(autoplay = true) {
     if (yt?.pauseVideo) yt.pauseVideo();
     clearInterval(ytTimer);
     emit('yt-visible', false);
-    const blob = await getBlob(t.id);
+    let blob = await getBlob(t.id);
     if (token !== loadToken) return;
-    if (!blob) { emit('error', '音声データが見つかりません'); return; }
+    if (!blob) {
+      if (!fetchMissing) { emit('error', '音声データが見つかりません'); return; }
+      try {
+        blob = await fetchMissing(t);
+      } catch (e) {
+        if (token === loadToken) emit('error', e.message || '音声データを読み込めませんでした');
+        return;
+      }
+      if (token !== loadToken) return;
+    }
     const d = deck();
     d.el.pause();
     fx.setFade(d, 1);
@@ -283,9 +305,9 @@ function tick() {
   if (!end) return;
   const remain = (end - d.el.currentTime) / (d.el.playbackRate || 1);
   const cf = fx.settings.crossfade;
-  if (cf > 0 && fx.hasGraph() && state.repeat !== 'one' && remain <= cf) {
+  if (cf > 0 && fx.hasGraph() && state.repeat !== 'one' && !stopAfterTrack && remain <= cf) {
     const ni = nextIndex(true);
-    if (ni >= 0 && ni !== state.index && state.queue[ni].type === 'file') {
+    if (ni >= 0 && ni !== state.index && state.queue[ni].type === 'file' && !state.queue[ni].offloaded) {
       crossfadeTo(ni, Math.max(0.5, remain));
       return;
     }
@@ -464,6 +486,51 @@ export function setShuffle(on) {
 export function cycleRepeat() {
   state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
   emit('queue');
+}
+
+// キューの並べ替えと削除は、今の曲より後ろ(「次に再生」の一覧)だけを対象にする
+export function moveInQueue(from, to) {
+  const q = state.queue;
+  if (from === to || Math.min(from, to) <= state.index || Math.max(from, to) >= q.length) return;
+  const [t] = q.splice(from, 1);
+  q.splice(to, 0, t);
+  if (!state.shuffle) state.original = q.slice();
+  emit('queue');
+}
+
+export function removeAt(i) {
+  if (i <= state.index || i >= state.queue.length) return;
+  state.queue.splice(i, 1);
+  if (!state.shuffle) state.original = state.queue.slice();
+  emit('queue');
+}
+
+// スリープタイマー用: 音を少しずつ小さくしてから止める
+export function fadeOutAndPause(seconds = 8) {
+  const t = current();
+  if (!t || !state.playing) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      pause();
+      if (t.type === 'file') fx.setFade(deck(), 1);
+      applyVolume();
+      resolve();
+    };
+    if (t.type === 'file' && fx.hasGraph()) {
+      fx.rampFade(deck(), 0, seconds);
+      setTimeout(done, seconds * 1000);
+      return;
+    }
+    // 音声処理を使っていないときは、要素(またはYouTube)の音量を少しずつ下げる
+    const start = performance.now();
+    const iv = setInterval(() => {
+      const k = Math.max(0, 1 - (performance.now() - start) / (seconds * 1000));
+      const v = fx.elementVolume() * k;
+      decks.forEach((d) => { d.el.volume = v; });
+      if (yt?.setVolume) yt.setVolume(Math.round(fx.volumeGain() * 100 * k));
+      if (k === 0) { clearInterval(iv); done(); }
+    }, 100);
+  });
 }
 
 export function playNext(track) {

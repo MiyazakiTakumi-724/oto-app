@@ -44,13 +44,17 @@
         <button id="syncBannerBtn" class="pill primary" type="button">ログイン</button>
       </div>
       <div class="search">
-        <input id="searchInput" type="search" placeholder="曲名・アーティストで検索" autocomplete="off">
+        <input id="searchInput" type="search" placeholder="曲名・アーティスト・アルバムで検索" autocomplete="off">
+      </div>
+      <div id="libMode" class="segmented lib-mode" role="tablist" aria-label="ライブラリの表示">
+        <button type="button" data-mode="songs" role="tab">曲</button>
+        <button type="button" data-mode="artists" role="tab">アーティスト</button>
+        <button type="button" data-mode="albums" role="tab">アルバム</button>
       </div>
       <div class="row-actions">
         <button id="playAllBtn" class="pill">▶ すべて再生</button>
         <button id="shuffleAllBtn" class="pill">⤨ シャッフル</button>
       </div>
-      <label class="check-row"><input id="hideYoutube" type="checkbox" class="check"> YouTubeの曲を除く</label>
       <ul id="libraryList" class="track-list"></ul>
       <div id="libraryEmpty" class="empty hidden">
         <img class="empty-logo" src="icons/icon.svg" alt="" width="88" height="88">
@@ -61,12 +65,15 @@
     <!-- プレイリスト一覧 -->
     <section id="view-playlists" class="view hidden">
       <button id="newPlaylistBtn" class="pill wide">＋ 新しいプレイリスト</button>
+      <div id="monthSummary" class="card summary hidden"></div>
+      <ul id="smartList" class="playlist-list"></ul>
       <ul id="playlistList" class="playlist-list"></ul>
-      <p id="playlistEmpty" class="empty hidden">プレイリストはまだありません。</p>
+      <p id="playlistEmpty" class="empty hidden">自分で作ったプレイリストはまだありません。</p>
     </section>
 
-    <!-- プレイリスト詳細 -->
+    <!-- プレイリスト詳細(アーティスト・アルバム・お気に入りなどの一覧も、この画面で表示する) -->
     <section id="view-playlist" class="view hidden">
+      <p id="plInfo" class="muted small pl-info"></p>
       <div class="row-actions">
         <button id="plPlayBtn" class="pill">▶ 再生</button>
         <button id="plShuffleBtn" class="pill">⤨ シャッフル</button>
@@ -105,17 +112,24 @@
           <input id="ytInput" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." required>
           <button id="ytSubmitBtn" class="pill" type="submit">取り込む</button>
         </form>
-        <p id="ytStatus" class="muted small"></p>
+        <div id="ytProgress" class="progress hidden" role="progressbar" aria-label="取り込みの進み具合" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar"></div>
+        </div>
+        <div class="yt-status-row">
+          <p id="ytStatus" class="muted small" aria-live="polite"></p>
+          <button id="ytCancelBtn" class="pill small-pill hidden" type="button">キャンセル</button>
+        </div>
       </div>
       <div class="card">
         <h2>保存容量</h2>
         <p id="storageInfo" class="muted small">確認中…</p>
         <p id="appVersion" class="muted small"></p>
+        <p class="muted small kbd-hint">PCでは <kbd>?</kbd> キーでキーボード操作の一覧を表示します。</p>
       </div>
     </section>
     <!-- サウンド -->
     <section id="view-sound" class="view hidden">
-      <p class="muted small sound-note">端末の音楽ファイルに効きます。YouTubeの曲は公式プレイヤーの音声に手を加えられないため、再生速度だけが反映されます。</p>
+      <p class="muted small sound-note">ライブラリの曲(YouTubeから取り込んだ曲を含む)に効きます。以前に追加した埋め込み形式のYouTubeの曲は、公式プレイヤーの音声に手を加えられないため、再生速度だけが反映されます。</p>
 
       <div class="card">
         <h2>音量</h2>
@@ -174,6 +188,13 @@
           </div>
           <p id="fxSpatialHelp" class="muted small"></p>
         </div>
+        <div id="fxSpatialAmountRow" class="setting">
+          <div class="setting-head">
+            <label for="fxSpatialAmount">効果の強さ</label>
+            <output id="fxSpatialAmountVal" for="fxSpatialAmount"></output>
+          </div>
+          <input id="fxSpatialAmount" type="range" min="0" max="100" step="5">
+        </div>
         <div id="fxRotationRow" class="setting">
           <div class="setting-head">
             <label for="fxRotation">1周する時間</label>
@@ -195,9 +216,9 @@
         <h2>ボーカルと伴奏</h2>
         <div id="fxVocalPresets" class="chips">
           <button type="button" class="chip" data-vocal="100" data-inst="100">そのまま</button>
-          <button type="button" class="chip" data-vocal="20" data-inst="100">カラオケ</button>
-          <button type="button" class="chip" data-vocal="140" data-inst="85">ボーカル強調</button>
-          <button type="button" class="chip" data-vocal="130" data-inst="30">ボーカルだけ</button>
+          <button type="button" class="chip" data-vocal="0" data-inst="100">カラオケ</button>
+          <button type="button" class="chip" data-vocal="170" data-inst="75">ボーカル強調</button>
+          <button type="button" class="chip" data-vocal="140" data-inst="0">ボーカルだけ</button>
         </div>
         <div class="setting">
           <div class="setting-head">
@@ -212,7 +233,7 @@
             <output id="fxInstVal" for="fxInst"></output>
           </div>
           <input id="fxInst" type="range" min="0" max="200" step="5">
-          <p class="muted small">中央から聞こえる声の帯域をボーカルとして分けます。曲によっては、ベースやドラムの一部も一緒に変わります。</p>
+          <p class="muted small">左右から同じように聞こえる(中央にある)音を、周波数ごとに見分けてボーカルとして分けます。低音と高い音は伴奏として扱います。曲によっては、中央にある楽器の一部も一緒に変わります。</p>
         </div>
       </div>
 
@@ -254,7 +275,7 @@
   </div>
 
   <!-- ミニプレイヤー -->
-  <div id="miniPlayer" class="mini hidden" role="button" aria-label="再生画面を開く">
+  <div id="miniPlayer" class="mini hidden" role="button" tabindex="0" aria-label="再生画面を開く">
     <div class="mini-progress">
       <div id="miniProgressBar"></div>
     </div>
@@ -309,18 +330,32 @@
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
-      <span class="muted small">再生中</span>
-      <button id="queueBtn" class="icon-btn" aria-label="再生キュー">
-        <svg viewBox="0 0 24 24">
-          <path d="M4 6h16M4 12h16M4 18h10" />
-        </svg>
-      </button>
+      <span id="npLabel" class="muted small">再生中</span>
+      <div class="sheet-head-right">
+        <button id="sleepBtn" class="icon-btn toggle" aria-label="スリープタイマー">
+          <svg viewBox="0 0 24 24">
+            <path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z" />
+          </svg>
+        </button>
+        <button id="queueBtn" class="icon-btn" aria-label="再生キュー">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 6h16M4 12h16M4 18h10" />
+          </svg>
+        </button>
+      </div>
     </div>
     <div id="artWrap" class="art-wrap"><img id="npArt" class="art-lg" alt=""></div>
     <canvas id="viz" class="viz hidden" aria-hidden="true"></canvas>
-    <div class="np-text">
-      <div id="npTitle" class="title"></div>
-      <div id="npArtist" class="sub"></div>
+    <div class="np-row">
+      <div class="np-text">
+        <div id="npTitle" class="title"></div>
+        <div id="npArtist" class="sub"></div>
+      </div>
+      <button id="favBtn" class="icon-btn fav-btn" aria-label="お気に入り" aria-pressed="false">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 20.5s-7-4.4-9.2-8.7C1.3 8.6 3.2 5 6.6 5c2.1 0 3.8 1.2 5.4 3.2C13.6 6.2 15.3 5 17.4 5c3.4 0 5.3 3.6 3.8 6.8C19 16.1 12 20.5 12 20.5z" />
+        </svg>
+      </button>
     </div>
     <div class="seek">
       <input id="seekBar" type="range" min="0" max="1000" value="0" aria-label="再生位置">

@@ -19,7 +19,13 @@ let tracks = [];      // ライブラリ(追加日の新しい順)
 let playlists = [];
 let byId = new Map();
 let view = 'library';
-let openPlaylistId = null;
+let openPlaylistId = null;  // プレイリスト詳細の画面で開いている一覧(プレイリストのID、または @fav・@artist:名前 など)
+let listFrom = 'playlists'; // その一覧をどのタブから開いたか(戻る先)
+let libMode = 'songs';      // ライブラリの表示: songs | artists | albums
+try { libMode = localStorage.getItem('oto.libMode') || 'songs'; } catch { /* 無視 */ }
+// 「元に戻す」を押せる間は、削除した曲・プレイリストを画面にだけ出さないでおく
+const hiddenTracks = new Set();
+const hiddenPlaylists = new Set();
 
 // ---------- ユーティリティ ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -134,7 +140,7 @@ const SPARK_COLORS = ['#ff5a5f', '#ffd166', '#5ad1ff'];
 
 // origin の中心から、きらめきが弾ける(動きを減らす設定では出さない)
 // ring/vibrate ありの大きめの演出は「達成」した瞬間に、なしの軽い演出はよく使う操作のたびに使う
-function spawnBurst(origin, { ring = true, count = 10, vibrate = true } = {}) {
+function spawnBurst(origin, { ring = true, count = 10, vibrate = true, colors = SPARK_COLORS } = {}) {
   if (REDUCED || !origin) return;
   const r = origin.getBoundingClientRect();
   if (!r.width && !r.height) return;
@@ -152,7 +158,7 @@ function spawnBurst(origin, { ring = true, count = 10, vibrate = true } = {}) {
     const d = (ring ? 30 : 20) + Math.random() * (ring ? 28 : 16);
     s.style.setProperty('--tx', `${Math.cos(a) * d}px`);
     s.style.setProperty('--ty', `${Math.sin(a) * d}px`);
-    s.style.setProperty('--spark-color', SPARK_COLORS[i % SPARK_COLORS.length]);
+    s.style.setProperty('--spark-color', colors[i % colors.length]);
     s.style.animationDelay = `${Math.random() * 60}ms`;
     box.appendChild(s);
   }
@@ -168,7 +174,10 @@ function spawnBurst(origin, { ring = true, count = 10, vibrate = true } = {}) {
     setTimeout(() => el.remove(), 650);
   }
 
-  if (vibrate && navigator.vibrate) { try { navigator.vibrate(12); } catch { /* 無視 */ } }
+  // 一度も画面に触れていないうちは、ブラウザが振動を止めて警告を出すので鳴らさない
+  if (vibrate && navigator.vibrate && navigator.userActivation?.hasBeenActive !== false) {
+    try { navigator.vibrate(12); } catch { /* 無視 */ }
+  }
 }
 
 // よく使うボタン・切り替え用の軽いきらめき(輪や振動なし)
@@ -185,15 +194,58 @@ function glowPulse(el) {
 }
 
 let toastTimer;
-function toast(msg, { celebrate = false } = {}) {
+function toast(msg, { celebrate = false, action = null, duration = 2600 } = {}) {
   const el = $('#toast');
-  el.textContent = msg;
+  el.textContent = '';
+  const text = document.createElement('span');
+  text.textContent = msg;
+  el.append(text);
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-action';
+    b.textContent = action.label;
+    b.onclick = () => { clearTimeout(toastTimer); hideAnimated(el); action.run(); };
+    el.append(b);
+  }
   el.classList.toggle('celebrate', celebrate);
+  el.classList.toggle('has-action', !!action);
   showEl(el);
   if (celebrate) spawnBurst(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => hideAnimated(el), 2600);
+  toastTimer = setTimeout(() => hideAnimated(el), duration);
 }
+
+// 削除は確かめずにすぐ画面から消し、トーストの「元に戻す」で取り消せるようにする。
+// 本当に消すのは数秒後(アプリを離れるときは、その場で)
+const UNDO_MS = 5000;
+const pendingCommits = new Set();
+function withUndo(message, { commit, undo }) {
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    pendingCommits.delete(finish);
+    Promise.resolve(commit()).catch((e) => console.error(e));
+  };
+  const timer = setTimeout(finish, UNDO_MS);
+  pendingCommits.add(finish);
+  toast(message, {
+    duration: UNDO_MS,
+    action: {
+      label: '元に戻す',
+      run: () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        pendingCommits.delete(finish);
+        Promise.resolve(undo()).catch((e) => console.error(e));
+      },
+    },
+  });
+}
+const commitPending = () => [...pendingCommits].forEach((f) => f());
 
 function withArt(t) {
   if (t.picture && !t.artUrl) t.artUrl = URL.createObjectURL(t.picture);
@@ -207,8 +259,20 @@ function actionSheet(title, items) {
   const box = $('#actionItems');
   box.innerHTML = '';
   items.forEach((it) => {
+    // info: 押せない説明の行(キーボード操作の一覧など)
+    if (it.info) {
+      const row = document.createElement('div');
+      row.className = 'action-item info';
+      const k = document.createElement('kbd');
+      k.textContent = it.key;
+      const d = document.createElement('span');
+      d.textContent = it.label;
+      row.append(k, d);
+      box.appendChild(row);
+      return;
+    }
     const b = document.createElement('button');
-    b.className = 'action-item' + (it.danger ? ' danger' : '');
+    b.className = 'action-item' + (it.danger ? ' danger' : '') + (it.on ? ' on' : '');
     b.textContent = it.label;
     b.onclick = () => { close(); it.run(); };
     box.appendChild(b);
@@ -260,86 +324,255 @@ const confirmDanger = async (title, ok) => !!(await dialog({ title, ok, danger: 
 
 // ---------- データ読み込み ----------
 async function loadAll() {
-  tracks = (await db.getAllTracks()).map(withArt).sort((a, b) => b.addedAt - a.addedAt);
+  tracks = (await db.getAllTracks()).filter((t) => !hiddenTracks.has(t.id)).map(withArt).sort((a, b) => b.addedAt - a.addedAt);
   byId = new Map(tracks.map((t) => [t.id, t]));
-  playlists = (await db.getAllPlaylists()).sort((a, b) => a.createdAt - b.createdAt);
+  playlists = (await db.getAllPlaylists()).filter((p) => !hiddenPlaylists.has(p.id)).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 // ---------- 描画 ----------
-function trackRow(t, { index, onTap, menu = true } = {}) {
+const SVG_MORE = '<svg viewBox="0 0 24 24"><circle class="fill" cx="5" cy="12" r="1.8"/><circle class="fill" cx="12" cy="12" r="1.8"/><circle class="fill" cx="19" cy="12" r="1.8"/></svg>';
+const SVG_HANDLE = '<svg viewBox="0 0 24 24"><path d="M5 9h14M5 15h14"/></svg>';
+const SVG_REMOVE = '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+const SVG_HEART = '<svg viewBox="0 0 24 24"><path d="M12 20.5s-7-4.4-9.2-8.7C1.3 8.6 3.2 5 6.6 5c2.1 0 3.8 1.2 5.4 3.2C13.6 6.2 15.3 5 17.4 5c3.4 0 5.3 3.6 3.8 6.8C19 16.1 12 20.5 12 20.5z"/></svg>';
+const SVG_CLOUD = '<svg viewBox="0 0 24 24"><path d="M7 18h10.5a4 4 0 00.6-8 6 6 0 00-11.4 1.6A3.3 3.3 0 007 18z"/></svg>';
+const SVG_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+const SVG_FLAME = '<svg viewBox="0 0 24 24"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.4-5.4 3.6-8.3.4 1.6 1.4 2.6 2.4 3.1.3-2.6 1.7-4.8 3.5-6.1-.2 2.9 3.5 5.4 3.5 10 0 4.2-2.7 7.5-6.5 7.5z"/></svg>';
+
+// t: 曲 / index: 一覧の中の位置 / onTap: 行を押したとき / menu: 「…」メニュー / handle: 並べ替えのつまみ / onRemove: 「×」ボタン
+function trackRow(t, { index, onTap, menu = true, handle = false, onRemove = null } = {}) {
   const li = document.createElement('li');
   li.className = 'track' + (player.current()?.id === t.id ? ' playing' : '');
   li.dataset.id = t.id;
+  li.tabIndex = 0;
+  const marks = (t.favorite ? `<span class="row-mark fav" aria-label="お気に入り">${SVG_HEART}</span>` : '') +
+    (t.offloaded ? `<span class="row-mark" aria-label="ドライブにだけ保存">${SVG_CLOUD}</span>` : '');
   li.innerHTML = `
     <img class="art-sm" src="${esc(t.artUrl || ICON_NOTE)}" alt="" loading="lazy">
     <div class="meta">
-      <div class="title">${t.type === 'youtube' ? '<span class="yt-mark">YT</span>' : ''}${esc(t.title)}</div>
-      <div class="sub">${esc([t.artist, t.duration ? fmt(t.duration) : ''].filter(Boolean).join(' ・ '))}</div>
+      <div class="title">${esc(t.title)}</div>
+      <div class="sub">${marks}${esc([t.artist, t.duration ? fmt(t.duration) : ''].filter(Boolean).join(' ・ '))}</div>
     </div>
-    ${menu ? '<button class="icon-btn more" aria-label="メニュー"><svg viewBox="0 0 24 24"><circle class="fill" cx="5" cy="12" r="1.8"/><circle class="fill" cx="12" cy="12" r="1.8"/><circle class="fill" cx="19" cy="12" r="1.8"/></svg></button>' : ''}`;
+    ${onRemove ? `<button class="icon-btn row-remove" aria-label="キューから外す">${SVG_REMOVE}</button>` : ''}
+    ${menu ? `<button class="icon-btn more" aria-label="メニュー">${SVG_MORE}</button>` : ''}
+    ${handle ? `<button class="icon-btn drag-handle" aria-label="並べ替え(↑↓キーで移動)">${SVG_HANDLE}</button>` : ''}`;
   li.addEventListener('click', (e) => {
+    if (e.target.closest('.drag-handle')) return;
+    if (e.target.closest('.row-remove')) { onRemove(li); return; }
     if (e.target.closest('.more')) { trackMenu(t); return; }
+    onTap?.(index);
+  });
+  li.addEventListener('keydown', (e) => {
+    if (e.target !== li || (e.key !== 'Enter' && e.key !== ' ') || !li.matches(':focus-visible')) return;
+    e.preventDefault();
     onTap?.(index);
   });
   return li;
 }
 
+// プレイリスト・アーティストなどの一覧の行
+function groupRow({ name, sub, art, artHtml, onOpen }) {
+  const li = document.createElement('li');
+  li.className = 'playlist-item';
+  li.tabIndex = 0;
+  const pic = artHtml || `<img class="art-sm" src="${esc(art || ICON_NOTE)}" alt="" loading="lazy">`;
+  li.innerHTML = `${pic}
+    <div class="meta">
+      <div class="title">${esc(name)}</div>
+      <div class="sub">${esc(sub)}</div>
+    </div>`;
+  li.onclick = onOpen;
+  li.onkeydown = (e) => {
+    if (e.target !== li || (e.key !== 'Enter' && e.key !== ' ') || !li.matches(':focus-visible')) return;
+    e.preventDefault();
+    onOpen();
+  };
+  return li;
+}
+
+const searchQuery = () => $('#searchInput').value.trim().toLowerCase();
+const matches = (t, q) => !q || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q);
+
 function filteredTracks() {
-  const q = $('#searchInput').value.trim().toLowerCase();
-  const hideYt = $('#hideYoutube').checked;
-  return tracks.filter((t) => !(hideYt && t.type === 'youtube') &&
-    (!q || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q)));
+  const q = searchQuery();
+  return tracks.filter((t) => matches(t, q));
+}
+
+const UNKNOWN_ARTIST = '不明なアーティスト';
+
+// アーティスト・アルバムごとにまとめる(ライブラリの並び=追加日の新しい順のまま)
+function groupBy(keyOf) {
+  const map = new Map();
+  for (const t of tracks) {
+    const k = keyOf(t);
+    if (k === null) continue;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(t);
+  }
+  return [...map].sort(([a], [b]) => (a === '') - (b === '') || a.localeCompare(b, 'ja'));
 }
 
 function renderLibrary() {
   const list = $('#libraryList');
-  const items = filteredTracks();
   list.innerHTML = '';
-  items.forEach((t, i) => list.appendChild(trackRow(t, { index: i, onTap: (idx) => player.playList(items, idx) })));
-  if (tracks.length && !items.length) list.innerHTML = '<li class="empty small">条件に合う曲はありません</li>';
+  document.querySelectorAll('#libMode button').forEach((b) => {
+    const on = b.dataset.mode === libMode;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on);
+  });
+  $('#libMode').classList.toggle('hidden', !tracks.length);
   $('#libraryEmpty').classList.toggle('hidden', tracks.length > 0);
+  const q = searchQuery();
+  let count = 0;
+  if (libMode === 'songs') {
+    const items = filteredTracks();
+    items.forEach((t, i) => list.appendChild(trackRow(t, { index: i, onTap: (idx) => player.playList(items, idx) })));
+    count = items.length;
+  } else {
+    const artists = libMode === 'artists';
+    const groups = groupBy(artists ? (t) => t.artist || '' : (t) => t.album || null);
+    for (const [key, items] of groups) {
+      const name = key || UNKNOWN_ARTIST;
+      if (q && !name.toLowerCase().includes(q) && !items.some((t) => matches(t, q))) continue;
+      const by = new Set(items.map((t) => t.artist || ''));
+      const sub = artists ? `${items.length}曲` : `${by.size > 1 ? 'さまざまなアーティスト' : (items[0].artist || UNKNOWN_ARTIST)} ・ ${items.length}曲`;
+      const id = artists ? `@artist:${key}` : `@album:${key}`;
+      list.appendChild(groupRow({ name, sub, art: items.find((t) => t.artUrl)?.artUrl, onOpen: () => openList(id, 'library') }));
+      count++;
+    }
+    if (!artists && !groups.length && tracks.length) {
+      list.innerHTML = '<li class="empty small">アルバムの情報がある曲はまだありません。MP3などのタグにアルバム名があると、ここにまとまります。</li>';
+      return;
+    }
+  }
+  if (tracks.length && !count) list.innerHTML = '<li class="empty small">条件に合う曲はありません</li>';
 }
 
+// 自動でできる一覧(お気に入り・最近再生した曲・よく聴く曲)
+const SMART = {
+  '@fav': {
+    name: 'お気に入り',
+    icon: SVG_HEART,
+    tracks: () => tracks.filter((t) => t.favorite).sort((a, b) => (b.favoritedAt || 0) - (a.favoritedAt || 0)),
+    empty: '再生画面のハートか、曲の「…」メニューからお気に入りに追加できます。',
+    always: true,
+  },
+  '@recent': {
+    name: '最近再生した曲',
+    icon: SVG_CLOCK,
+    tracks: () => tracks.filter((t) => t.lastPlayedAt).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt).slice(0, 50),
+  },
+  '@top': {
+    name: 'よく聴く曲',
+    icon: SVG_FLAME,
+    tracks: () => tracks.filter((t) => t.plays > 0).sort((a, b) => b.plays - a.plays || b.lastPlayedAt - a.lastPlayedAt).slice(0, 50),
+    sub: (t) => `${t.plays}回`,
+  },
+};
+
+// 一覧のIDから、名前と曲を求める
+function listInfo(id) {
+  if (!id) return null;
+  if (SMART[id]) return SMART[id];
+  if (id.startsWith('@artist:')) {
+    const key = id.slice(8);
+    return { name: key || UNKNOWN_ARTIST, tracks: () => tracks.filter((t) => (t.artist || '') === key) };
+  }
+  if (id.startsWith('@album:')) {
+    const key = id.slice(7);
+    // アルバムは取り込んだ順(=ファイルの並び順になっていることが多い)
+    return { name: key, tracks: () => tracks.filter((t) => t.album === key).sort((a, b) => a.addedAt - b.addedAt) };
+  }
+  const pl = playlists.find((p) => p.id === id);
+  return pl && { name: pl.name, tracks: () => playlistTracks(pl), playlist: pl };
+}
+
+const currentListTracks = () => listInfo(openPlaylistId)?.tracks() || [];
+
 function renderPlaylists() {
+  const smart = $('#smartList');
+  smart.innerHTML = '';
+  for (const [id, s] of Object.entries(SMART)) {
+    const n = s.tracks().length;
+    if (!n && !s.always) continue;
+    smart.appendChild(groupRow({
+      name: s.name,
+      sub: `${n}曲`,
+      artHtml: `<span class="art-sm smart-art ${id.slice(1)}">${s.icon}</span>`,
+      onOpen: () => openList(id, 'playlists'),
+    }));
+  }
   const list = $('#playlistList');
   list.innerHTML = '';
   playlists.forEach((pl) => {
-    const first = pl.trackIds.map((id) => byId.get(id)).find(Boolean);
-    const li = document.createElement('li');
-    li.className = 'playlist-item';
-    li.innerHTML = `
-      <img class="art-sm" src="${esc(first?.artUrl || ICON_NOTE)}" alt="">
-      <div class="meta" style="flex:1;min-width:0">
-        <div class="title">${esc(pl.name)}</div>
-        <div class="sub">${pl.trackIds.length}曲</div>
-      </div>`;
-    li.onclick = () => openPlaylist(pl.id);
-    list.appendChild(li);
+    const items = playlistTracks(pl);
+    list.appendChild(groupRow({ name: pl.name, sub: `${items.length}曲`, art: items.find((t) => t.artUrl)?.artUrl, onOpen: () => openList(pl.id, 'playlists') }));
   });
   $('#playlistEmpty').classList.toggle('hidden', playlists.length > 0);
+  renderSummary();
 }
 
 function playlistTracks(pl) {
   return pl.trackIds.map((id) => byId.get(id)).filter(Boolean);
 }
 
+function totalTime(items) {
+  const min = Math.round(items.reduce((s, t) => s + (t.duration || 0), 0) / 60);
+  if (!min) return '1分未満';
+  return min >= 60 ? `${Math.floor(min / 60)}時間${min % 60}分` : `${min}分`;
+}
+
 function renderPlaylist() {
-  const pl = playlists.find((p) => p.id === openPlaylistId);
-  if (!pl) { switchTab('playlists'); return; }
-  $('#viewTitle').textContent = pl.name;
-  const items = playlistTracks(pl);
+  const info = listInfo(openPlaylistId);
+  if (!info) { switchTab(listFrom); return; }
+  $('#viewTitle').textContent = info.name;
+  const items = info.tracks();
   const list = $('#playlistTracks');
   list.innerHTML = '';
-  items.forEach((t, i) => list.appendChild(trackRow(t, { index: i, onTap: (idx) => player.playList(items, idx) })));
-  $('#playlistTracksEmpty').classList.toggle('hidden', items.length > 0);
+  items.forEach((t, i) => {
+    const li = trackRow(t, { index: i, onTap: (idx) => player.playList(items, idx), handle: !!info.playlist && items.length > 1 });
+    if (info.sub) li.querySelector('.sub').insertAdjacentHTML('beforeend', ` ・ ${esc(info.sub(t))}`);
+    list.appendChild(li);
+  });
+  $('#plInfo').textContent = items.length ? `${items.length}曲 ・ ${totalTime(items)}` : '';
+  $('#plMenuBtn').classList.toggle('hidden', !info.playlist);
+  const empty = $('#playlistTracksEmpty');
+  empty.textContent = info.empty || (info.playlist ? '曲の「…」メニューから、このプレイリストに追加できます。' : '曲はありません。');
+  empty.classList.toggle('hidden', items.length > 0);
+}
+
+// プレイリストの曲を並べ替える(表示している並びの from 番目を to 番目へ)
+function movePlaylistTrack(from, to) {
+  const info = listInfo(openPlaylistId);
+  const pl = info?.playlist;
+  if (!pl) return;
+  const ids = info.tracks().map((t) => t.id);
+  const [id] = ids.splice(from, 1);
+  ids.splice(to, 0, id);
+  // ライブラリにない曲のIDが残っていたら、消さずに後ろに付けておく
+  pl.trackIds = [...ids, ...pl.trackIds.filter((x) => !ids.includes(x))];
+  renderPlaylist();
+  db.putPlaylist(pl);
 }
 
 function renderQueue() {
   const { queue, index } = player.state;
   const list = $('#queueList');
   list.innerHTML = '';
-  queue.slice(index + 1).forEach((t, i) => {
-    list.appendChild(trackRow(t, { index: index + 1 + i, onTap: (idx) => player.jumpTo(idx), menu: false }));
+  const upcoming = queue.slice(index + 1);
+  upcoming.forEach((t, i) => {
+    const at = index + 1 + i;
+    list.appendChild(trackRow(t, {
+      index: at,
+      onTap: (idx) => player.jumpTo(idx),
+      menu: false,
+      handle: upcoming.length > 1,
+      onRemove: async (li) => {
+        await collapseRows([li]);
+        // 縮めている間にキューが変わっていても、押した曲を外す
+        const i = player.state.queue.indexOf(t, player.state.index + 1);
+        if (i > 0) player.removeAt(i);
+      },
+    }));
   });
   if (!list.children.length) list.innerHTML = '<li class="empty small">次の曲はありません</li>';
 }
@@ -365,6 +598,10 @@ function renderNow() {
     }
   }
   shownTrackId = t.id;
+  const fav = !!(byId.get(t.id) || t).favorite;
+  $('#favBtn').classList.toggle('on', fav);
+  $('#favBtn').setAttribute('aria-pressed', fav);
+  $('#favBtn').setAttribute('aria-label', fav ? 'お気に入りから外す' : 'お気に入りに追加');
   $('#artWrap').classList.toggle('video', t.type === 'youtube');
   $('#npArt').classList.toggle('hidden', t.type === 'youtube');
   placeYtDock();
@@ -412,13 +649,15 @@ function show(v, { swiped = false } = {}) {
   $('#backBtn').classList.toggle('hidden', v !== 'playlist');
   if (TITLES[v]) $('#viewTitle').textContent = TITLES[v];
   window.scrollTo(0, 0);
-  if (swiped) { renderNow(); return; }
+  if (swiped) { renderNow(); if (v === 'playlists') countUp($('#monthSummary')); return; }
   if (v === 'add') { updateStorageInfo(); renderSync(); }
   if (v === 'sound') renderSound();
   rerender();
   if (v === 'library') staggerIn($('#libraryList').children);
-  else if (v === 'playlists') staggerIn($('#playlistList').children);
-  else if (v === 'playlist') staggerIn($('#playlistTracks').children);
+  else if (v === 'playlists') {
+    staggerIn([$('#monthSummary'), ...$('#smartList').children, ...$('#playlistList').children].filter((x) => !x.classList.contains('hidden')));
+    countUp($('#monthSummary'));
+  } else if (v === 'playlist') staggerIn($('#playlistTracks').children);
   else staggerIn(el.querySelectorAll(':scope > .card'));
 }
 
@@ -430,8 +669,10 @@ function switchTab(tab, opts) {
   show(tab, opts);
 }
 
-function openPlaylist(id) {
+function openList(id, from = 'playlists') {
   openPlaylistId = id;
+  listFrom = from;
+  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === from));
   show('playlist');
 }
 
@@ -439,17 +680,89 @@ function openPlaylist(id) {
 function trackMenu(t) {
   const items = [
     { label: '次に再生', run: () => { player.playNext(t); toast('次に再生します'); } },
+    { label: t.favorite ? 'お気に入りから外す' : 'お気に入りに追加', run: () => toggleFavorite(t) },
     { label: 'プレイリストに追加…', run: () => addToPlaylistMenu(t) },
     { label: '曲名・アーティストを編集', run: () => editTrack(t) },
   ];
-  if (view === 'playlist') {
+  if (view === 'playlist' && listInfo(openPlaylistId)?.playlist) {
     items.push({ label: 'このプレイリストから外す', run: () => removeFromPlaylist(openPlaylistId, t.id) });
+  }
+  if (t.artist && openPlaylistId !== `@artist:${t.artist}`) {
+    items.push({ label: `「${t.artist}」の曲を見る`, run: () => openList(`@artist:${t.artist}`, 'library') });
   }
   if (t.ytId) {
     items.push({ label: 'YouTubeで開く', run: () => window.open(`https://www.youtube.com/watch?v=${t.ytId}`, '_blank') });
   }
+  // ドライブに保存済みの曲は、この端末から音声だけ消して容量を空けられる
+  if (t.type === 'file' && t.driveId && sync.state.enabled) {
+    if (t.offloaded) items.push({ label: 'この端末に保存し直す', run: () => restoreToDevice(t) });
+    else items.push({ label: 'この端末から音声を消す(ドライブに残す)', run: () => offloadTrack(t) });
+  }
   items.push({ label: 'ライブラリから削除', danger: true, run: () => removeTrack(t) });
   actionSheet(t.title, items);
+}
+
+// ---------- お気に入り ----------
+const HEART_COLORS = ['#ff5a5f', '#ff8fab', '#ffd166'];
+
+async function toggleFavorite(t, origin = null) {
+  const rec = byId.get(t.id) || t;
+  const on = !rec.favorite;
+  for (const x of new Set([rec, t])) { x.favorite = on; x.favoritedAt = on ? Date.now() : 0; }
+  renderNow();
+  rerender();
+  // 再生画面のハートは弾ませ、そこからハート色のきらめきを出す。ほかの場所ではトーストから出す
+  const btn = $('#favBtn');
+  const onSheet = $('#nowPlaying').classList.contains('open') && player.current()?.id === t.id;
+  if (on && onSheet) {
+    btn.classList.remove('pop');
+    void btn.offsetWidth;
+    btn.classList.add('pop');
+  }
+  const from = origin || (onSheet ? btn : null);
+  if (on && from) {
+    spawnBurst(from, { count: 12, colors: HEART_COLORS });
+    toast('お気に入りに追加しました');
+  } else {
+    toast(on ? 'お気に入りに追加しました' : 'お気に入りから外しました', { celebrate: on });
+  }
+  await saveTrackMeta(rec);
+}
+
+// ---------- この端末から音声だけを消す(ドライブには残す) ----------
+const mbText = (b) => `${(b / 1024 / 1024).toFixed(b >= 100 * 1024 * 1024 ? 0 : 1)}MB`;
+
+async function offloadTrack(t) {
+  const rec = byId.get(t.id) || t;
+  if (player.current()?.id === t.id) { toast('再生中の曲は消せません。ほかの曲に切り替えてからもう一度お試しください'); return; }
+  const blob = await db.getBlob(t.id);
+  await db.deleteBlob(t.id);
+  for (const x of new Set([rec, t])) x.offloaded = true;
+  await saveTrackMeta(rec, { touch: false });
+  rerender();
+  toast(`この端末の容量を${mbText(blob?.size || t.size || 0)}空けました。再生するときはドライブから読み込みます`, { celebrate: true, duration: 4000 });
+  updateStorageInfo();
+}
+
+async function downloadToDevice(t) {
+  const rec = byId.get(t.id) || t;
+  const blob = await sync.fetchTrack(t);
+  for (const x of new Set([rec, t])) x.offloaded = false;
+  const { artUrl, ...data } = rec;
+  await db.putTrack(data, blob, { touch: false });
+  return blob;
+}
+
+async function restoreToDevice(t) {
+  toast('ドライブから読み込み中…', { duration: 60000 });
+  try {
+    await downloadToDevice(t);
+    toast(`「${t.title}」をこの端末に保存しました`, { celebrate: true });
+    rerender();
+    updateStorageInfo();
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 function addToPlaylistMenu(t) {
@@ -491,10 +804,21 @@ async function createPlaylist() {
 async function removeFromPlaylist(plId, trackId) {
   const pl = playlists.find((p) => p.id === plId);
   if (!pl) return;
+  const at = pl.trackIds.indexOf(trackId);
   await collapseRows(document.querySelectorAll(`#playlistTracks .track[data-id="${CSS.escape(trackId)}"]`));
   pl.trackIds = pl.trackIds.filter((id) => id !== trackId);
   await db.putPlaylist(pl);
   rerender();
+  withUndo(`「${pl.name}」から外しました`, {
+    commit: () => { },
+    undo: async () => {
+      const p = playlists.find((x) => x.id === plId);
+      if (!p || p.trackIds.includes(trackId)) return;
+      p.trackIds.splice(Math.min(at, p.trackIds.length), 0, trackId);
+      await db.putPlaylist(p);
+      rerender();
+    },
+  });
 }
 
 async function editTrack(t) {
@@ -517,17 +841,31 @@ async function saveTrackMeta(t, { touch = true } = {}) {
 }
 
 async function removeTrack(t) {
-  if (!(await confirmDanger(`「${t.title}」をライブラリから削除しますか?`, '削除'))) return;
   await collapseRows(document.querySelectorAll(`main .track[data-id="${CSS.escape(t.id)}"]`));
-  await db.deleteTrack(t.id);
-  if (t.artUrl?.startsWith('blob:')) URL.revokeObjectURL(t.artUrl);
+  hiddenTracks.add(t.id);
   player.removeFromQueue(t.id);
-  await loadAll();
+  tracks = tracks.filter((x) => x.id !== t.id);
+  byId.delete(t.id);
   rerender();
+  withUndo(`「${t.title}」を削除しました`, {
+    commit: async () => {
+      await db.deleteTrack(t.id);
+      hiddenTracks.delete(t.id);
+      if (t.artUrl?.startsWith('blob:')) URL.revokeObjectURL(t.artUrl);
+      await loadAll();
+      rerender();
+      if (view === 'add') updateStorageInfo();
+    },
+    undo: async () => {
+      hiddenTracks.delete(t.id);
+      await loadAll();
+      rerender();
+    },
+  });
 }
 
 function playlistMenu() {
-  const pl = playlists.find((p) => p.id === openPlaylistId);
+  const pl = listInfo(openPlaylistId)?.playlist;
   if (!pl) return;
   actionSheet(pl.name, [
     {
@@ -543,11 +881,21 @@ function playlistMenu() {
     {
       label: 'プレイリストを削除',
       danger: true,
-      run: async () => {
-        if (!(await confirmDanger(`「${pl.name}」を削除しますか?曲はライブラリに残ります。`, '削除'))) return;
-        await db.deletePlaylist(pl.id);
-        playlists = playlists.filter((p) => p !== pl);
+      run: () => {
+        hiddenPlaylists.add(pl.id);
+        playlists = playlists.filter((p) => p.id !== pl.id);
         switchTab('playlists');
+        withUndo(`「${pl.name}」を削除しました(曲はライブラリに残ります)`, {
+          commit: async () => {
+            await db.deletePlaylist(pl.id);
+            hiddenPlaylists.delete(pl.id);
+          },
+          undo: async () => {
+            hiddenPlaylists.delete(pl.id);
+            await loadAll();
+            rerender();
+          },
+        });
       },
     },
   ]);
@@ -620,25 +968,38 @@ async function addYouTube(e) {
   }
 
   e.preventDefault();
+  if (ytAbort) return;
   const input = $('#ytInput');
   const status = $('#ytStatus');
-  const submitBtn = $('#ytSubmitBtn') || $('#ytForm button[type="submit"]');
+  const submitBtn = $('#ytSubmitBtn');
+  const cancelBtn = $('#ytCancelBtn');
   const rawUrl = input.value.trim();
   const id = parseYouTubeId(rawUrl);
 
   if (!id) { status.textContent = 'YouTubeの動画URLを入力してください'; return; }
   if (tracks.some((t) => t.ytId === id)) { status.textContent = 'この動画はすでに追加されています'; return; }
 
+  const abort = new AbortController();
+  ytAbort = abort;
   input.disabled = true;
-  if (submitBtn) submitBtn.disabled = true;
-  status.textContent = '音声データを取得中…';
+  submitBtn.disabled = true;
+  cancelBtn.classList.remove('hidden');
+  $('.tabbar button[data-tab="add"]').classList.add('busy');
+  setYtProgress(null);
+  status.textContent = 'サーバーに接続中…';
+  // サーバーは YouTube から音声を取り終えてから送り始めるので、それまでは待ち時間の目安を出す
+  const slow = setTimeout(() => {
+    status.textContent = 'サーバーで音声を準備中…(サーバーが止まっていたときは、起動に1分ほどかかります)';
+  }, 6000);
 
   try {
     const res = await fetch(YT_API_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: rawUrl, id }),
+      signal: abort.signal,
     });
+    clearTimeout(slow);
 
     if (!res.ok) {
       let errMsg = `取り込みに失敗しました (${res.status})`;
@@ -666,9 +1027,10 @@ async function addYouTube(e) {
         received += value.byteLength;
         if (total > 0) {
           const pct = Math.min(99, Math.round((received / total) * 100));
-          status.textContent = `音声を取り込み中… ${pct}%`;
+          setYtProgress(pct);
+          status.textContent = `音声を受信中… ${pct}%(${mbText(received)} / ${mbText(total)})`;
         } else {
-          status.textContent = `音声を取り込み中… ${(received / 1024 / 1024).toFixed(1)}MB`;
+          status.textContent = `音声を受信中… ${mbText(received)}`;
         }
       }
       audioBlob = new Blob(chunks, { type: mime });
@@ -678,6 +1040,9 @@ async function addYouTube(e) {
 
     if (!audioBlob.size) throw new Error('音声データが空でした');
 
+    // ここから先は取り消せないので、キャンセルボタンは隠す
+    cancelBtn.classList.add('hidden');
+    setYtProgress(null);
     status.textContent = '曲情報を保存中…';
     const decodeHeader = (name) => {
       const v = res.headers.get(name);
@@ -722,19 +1087,49 @@ async function addYouTube(e) {
 
     await db.putTrack(track, file);
     input.value = '';
+    setYtProgress(100);
+    $('#ytProgress').classList.add('done');
     status.textContent = `「${track.title}」を音声ファイルとして取り込みました`;
     toast(`「${track.title}」を取り込みました`, { celebrate: true });
     await loadAll();
     rerender();
     updateStorageInfo();
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => { });
+    setTimeout(() => { if (!ytAbort) hideAnimated($('#ytProgress')); }, 1200);
   } catch (err) {
-    console.error(err);
-    status.textContent = err.message || '取り込みに失敗しました';
-    toast(err.message || '取り込みに失敗しました');
+    clearTimeout(slow);
+    $('#ytProgress').classList.add('hidden');
+    if (abort.signal.aborted) {
+      status.textContent = '取り込みをキャンセルしました';
+    } else {
+      console.error(err);
+      // 通信そのものに失敗したとき(圏外・サーバーに届かない)は、ブラウザの英語のメッセージを出さない
+      const msg = err instanceof TypeError ? '取り込み用サーバーにつながりませんでした。通信状況を確かめて、もう一度お試しください' : (err.message || '取り込みに失敗しました');
+      status.textContent = msg;
+      toast(msg);
+    }
   } finally {
+    ytAbort = null;
     input.disabled = false;
-    if (submitBtn) submitBtn.disabled = false;
+    submitBtn.disabled = false;
+    cancelBtn.classList.add('hidden');
+    $('.tabbar button[data-tab="add"]').classList.remove('busy');
+  }
+}
+
+let ytAbort = null; // 取り込み中なら、そのキャンセル用
+
+// 取り込みのプログレスバー。pct が null のときは、終わりが分からない動き(行ったり来たり)にする
+function setYtProgress(pct) {
+  const bar = $('#ytProgress');
+  showEl(bar);
+  bar.classList.remove('done');
+  bar.classList.toggle('indeterminate', pct === null);
+  if (pct === null) {
+    bar.removeAttribute('aria-valuenow');
+  } else {
+    bar.style.setProperty('--p', pct / 100);
+    bar.setAttribute('aria-valuenow', pct);
   }
 }
 
@@ -786,6 +1181,9 @@ function renderSound() {
   $('#fxRotation').value = s.rotation;
   $('#fxRotationVal').textContent = `${s.rotation}秒`;
   $('#fxRotationRow').classList.toggle('hidden', s.spatial !== '8d');
+  $('#fxSpatialAmountRow').classList.toggle('hidden', s.spatial === 'off');
+  $('#fxSpatialAmount').value = s.spatialAmount;
+  $('#fxSpatialAmountVal').textContent = `${s.spatialAmount}%`;
   document.querySelectorAll('#fxSpatial button').forEach((b) => {
     const on = b.dataset.mode === s.spatial;
     b.classList.toggle('on', on);
@@ -793,8 +1191,8 @@ function renderSound() {
   });
   $('#fxSpatialHelp').textContent = {
     off: '立体音響を使いません。',
-    '8d': '音が頭のまわりをゆっくり回るように聞こえます。',
-    surround: '部屋に置いたスピーカーで聴いているように、音が頭の外から聞こえます。耳が疲れにくくなります。',
+    '8d': '音が頭のまわりを回るように聞こえます。後ろを通るときは、後ろから聞こえるように再現します。',
+    surround: '部屋に置いたスピーカーに囲まれて聴いているように、音が頭の外から聞こえます。耳が疲れにくくなります。',
   }[s.spatial] || '';
   $('#fxVocal').value = s.vocal;
   $('#fxVocalVal').textContent = `${s.vocal}%`;
@@ -828,7 +1226,7 @@ function renderSound() {
     fx.BANDS.forEach((band, i) => {
       const row = document.createElement('div');
       row.className = 'eq-row';
-      row.innerHTML = `<span>${band.label}</span><input id="fxEq${i}" type="range" min="-12" max="12" step="1" aria-label="${band.label}"><span id="fxEqVal${i}"></span>`;
+      row.innerHTML = `<span>${band.label}</span><input id="fxEq${i}" type="range" min="${-fx.EQ_RANGE}" max="${fx.EQ_RANGE}" step="1" aria-label="${band.label}"><span id="fxEqVal${i}"></span>`;
       eq.appendChild(row);
       row.querySelector('input').addEventListener('input', (e) => {
         const g = fx.settings.eq.slice();
@@ -862,6 +1260,7 @@ function bindSound() {
   flag('#fxViz', 'visualizer');
   num('#fxWidth', 'width');
   num('#fxRotation', 'rotation');
+  num('#fxSpatialAmount', 'spatialAmount');
   num('#fxVocal', 'vocal');
   num('#fxInst', 'inst');
   document.querySelectorAll('#fxSpatial button').forEach((b) => {
@@ -1206,8 +1605,8 @@ function bindMiniGestures() {
 // 画面を左右にスワイプしてタブを切り替える(左で右隣のタブへ)。隣のタブが指と一緒に横から見えてくる
 const TAB_ORDER = ['library', 'playlists', 'sound', 'add'];
 function neighborTab(dx) {
-  if (view === 'playlist' && dx > 0) return 'playlists';
-  const i = TAB_ORDER.indexOf(view === 'playlist' ? 'playlists' : view);
+  if (view === 'playlist' && dx > 0) return listFrom;
+  const i = TAB_ORDER.indexOf(view === 'playlist' ? listFrom : view);
   return TAB_ORDER[i + (dx < 0 ? 1 : -1)] || null;
 }
 
@@ -1279,7 +1678,7 @@ function bindTabSwipe() {
   const W = () => window.innerWidth;
   // 曲が少なくて画面の下が空いていても効くように、画面全体で受ける
   bindSwipe(document.body, {
-    canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock'),
+    canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock, .drag-handle'),
     onLock: (g) => (g.axis === 'x' ? undefined : false),
     onMove: (g) => {
       const name = neighborTab(g.dx);
@@ -1334,20 +1733,348 @@ function bindTabSwipe() {
   });
 }
 
+// ---------- 並べ替え ----------
+// 行の右端のつまみをドラッグして並べ替える(指でもマウスでも)。つまみにフォーカスして ↑↓ キーでも動かせる
+function enableReorder(list, onMove) {
+  list.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault();
+    dragRow(list, handle.closest('li'), e, onMove);
+  });
+  list.addEventListener('keydown', (e) => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rows = [...list.querySelectorAll(':scope > li.track')];
+    const from = rows.indexOf(handle.closest('li'));
+    const to = from + (e.key === 'ArrowUp' ? -1 : 1);
+    if (from < 0 || to < 0 || to >= rows.length) return;
+    onMove(from, to);
+    list.querySelectorAll(':scope > li.track')[to]?.querySelector('.drag-handle')?.focus();
+  });
+}
+
+function dragRow(list, row, e, onMove) {
+  const rows = [...list.querySelectorAll(':scope > li.track')];
+  const from = rows.indexOf(row);
+  if (from < 0) return;
+  const sheet = list.closest('.sheet');
+  const scroller = sheet || document.scrollingElement;
+  const top0 = scroller.scrollTop;
+  // 位置はスクロールしても変わらない座標(スクロール量を足したもの)で覚えておく
+  const boxes = rows.map((r) => { const b = r.getBoundingClientRect(); return { top: b.top + top0, h: b.height }; });
+  const h = boxes[from].h;
+  const y0 = e.clientY;
+  let y = y0;
+  let to = from;
+  let raf = 0;
+  row.classList.add('dragging');
+  list.classList.add('reordering');
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch { /* 無視 */ } }
+
+  const update = () => {
+    const dy = y - y0 + (scroller.scrollTop - top0);
+    row.style.transform = `translateY(${dy}px) scale(1.02)`;
+    const center = boxes[from].top + dy + h / 2;
+    to = boxes.filter((b, i) => i !== from && b.top + b.h / 2 < center).length;
+    rows.forEach((r, i) => {
+      if (i === from) return;
+      const shift = from < to && i > from && i <= to ? -h : to < from && i >= to && i < from ? h : 0;
+      r.style.transform = shift ? `translateY(${shift}px)` : '';
+    });
+  };
+  // 画面の上下の端に近づいたら、自動でスクロールする
+  const edges = () => {
+    if (sheet) { const b = sheet.getBoundingClientRect(); return [b.top, b.bottom]; }
+    const mini = $('#miniPlayer');
+    const bottom = mini.classList.contains('hidden') ? $('.tabbar').getBoundingClientRect().top : mini.getBoundingClientRect().top;
+    return [$('.topbar').getBoundingClientRect().bottom, bottom];
+  };
+  const autoScroll = () => {
+    const [top, bottom] = edges();
+    const zone = 56;
+    let v = 0;
+    if (y < top + zone) v = -Math.min(16, Math.ceil((top + zone - y) / 4));
+    else if (y > bottom - zone) v = Math.min(16, Math.ceil((y - (bottom - zone)) / 4));
+    if (v) { scroller.scrollTop += v; update(); }
+    raf = requestAnimationFrame(autoScroll);
+  };
+  raf = requestAnimationFrame(autoScroll);
+
+  const move = (ev) => { y = ev.clientY; update(); };
+  const finish = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', finish);
+    window.removeEventListener('pointercancel', finish);
+    cancelAnimationFrame(raf);
+    // 落ちる場所まで滑らせてから、実際に並べ替える
+    const slot = to === from ? 0 : to > from ? boxes[to].top + boxes[to].h - h - boxes[from].top : boxes[to].top - boxes[from].top;
+    row.style.transition = 'transform .18s cubic-bezier(.22, 1, .36, 1)';
+    row.style.transform = `translateY(${slot}px)`;
+    setTimeout(() => {
+      row.classList.remove('dragging');
+      list.classList.remove('reordering');
+      rows.forEach((r) => { r.style.transform = ''; r.style.transition = ''; });
+      if (to !== from) {
+        onMove(from, to);
+        if (navigator.vibrate) { try { navigator.vibrate(6); } catch { /* 無視 */ } }
+      }
+    }, REDUCED ? 0 : 180);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', finish);
+  window.addEventListener('pointercancel', finish);
+}
+
+// ---------- 再生回数と聴いた記録 ----------
+// 30秒(短い曲は半分)聴いたら1回と数える。回数と記録は端末ごとに保存し、同期はしない
+const STATS_KEY = 'oto.stats';
+const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+let stats = {};
+try { stats = JSON.parse(localStorage.getItem(STATS_KEY) || '{}') || {}; } catch { /* 無視 */ }
+let statsTimer = 0;
+
+function flushStats() {
+  clearTimeout(statsTimer);
+  statsTimer = 0;
+  try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* 保存できなくても続ける */ }
+}
+const saveStatsSoon = () => { if (!statsTimer) statsTimer = setTimeout(flushStats, 5000); };
+const thisMonth = () => (stats[monthKey()] ||= { plays: {}, sec: 0 });
+
+let listening = { id: null, sec: 0, last: 0, counted: false };
+const PLAY_MILESTONES = [10, 25, 50, 100, 200, 500];
+
+function trackListening(cur, dur) {
+  const t = player.current();
+  if (!t) return;
+  // 別の曲になったか、同じ曲を頭からもう一度聴き始めたら数え直す
+  if (listening.id !== t.id || (cur < 2 && listening.last - cur > 5)) listening = { id: t.id, sec: 0, last: cur, counted: false };
+  const d = cur - listening.last;
+  listening.last = cur;
+  if (!player.state.playing || d <= 0 || d > 2) return;
+  listening.sec += d;
+  thisMonth().sec += d;
+  saveStatsSoon();
+  if (!listening.counted && listening.sec >= Math.min(30, (dur || 60) * 0.5)) {
+    listening.counted = true;
+    countPlay(t);
+  }
+}
+
+async function countPlay(t) {
+  const rec = byId.get(t.id) || t;
+  const plays = (rec.plays || 0) + 1;
+  for (const x of new Set([rec, t])) { x.plays = plays; x.lastPlayedAt = Date.now(); }
+  const m = thisMonth();
+  m.plays[t.id] = (m.plays[t.id] || 0) + 1;
+  flushStats();
+  await saveTrackMeta(rec, { touch: false });
+  if (PLAY_MILESTONES.includes(plays)) toast(`「${t.title}」の再生が${plays}回になりました`, { celebrate: true });
+  if (view === 'playlists') renderPlaylists();
+}
+
+// 今月のまとめ: 再生回数・聴いた時間・いちばん聴いた曲とアーティスト
+function renderSummary() {
+  const box = $('#monthSummary');
+  const m = stats[monthKey()];
+  const entries = m ? Object.entries(m.plays).filter(([id]) => byId.has(id)) : [];
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (!total) { box.classList.add('hidden'); return; }
+  const [topId, topN] = entries.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const top = byId.get(topId);
+  const byArtist = new Map();
+  for (const [id, n] of entries) {
+    const a = byId.get(id).artist;
+    if (a) byArtist.set(a, (byArtist.get(a) || 0) + n);
+  }
+  const topArtist = [...byArtist].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const min = Math.round(m.sec / 60);
+  const time = min >= 120 ? [Math.floor(min / 60), '時間聴いた'] : [min, '分聴いた'];
+  box.innerHTML = `
+    <div class="summary-head">${new Date().getMonth() + 1}月のまとめ</div>
+    <div class="summary-stats">
+      <div><b data-to="${total}">${total}</b><span>回再生</span></div>
+      <div><b data-to="${time[0]}">${time[0]}</b><span>${time[1]}</span></div>
+      <div><b data-to="${entries.length}">${entries.length}</b><span>曲</span></div>
+    </div>
+    <button type="button" class="summary-top">
+      <img class="art-sm" src="${esc(top.artUrl || ICON_NOTE)}" alt="">
+      <span class="meta">
+        <span class="muted small">いちばん聴いた曲(${topN}回)</span>
+        <span class="title">${esc(top.title)}</span>
+        ${topArtist ? `<span class="sub">よく聴いたアーティスト: ${esc(topArtist)}</span>` : ''}
+      </span>
+    </button>`;
+  box.querySelector('.summary-top').onclick = () => player.playList([top], 0);
+  box.classList.remove('hidden');
+}
+
+// 数字を0から数え上げる
+function countUp(box) {
+  if (REDUCED || box.classList.contains('hidden')) return;
+  box.querySelectorAll('[data-to]').forEach((el) => {
+    const to = Number(el.dataset.to);
+    const start = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - start) / 900);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+// ---------- スリープタイマー ----------
+let sleepMode = null; // null | 'time' | 'track'
+let sleepEnd = 0;
+let sleepTimer = 0;
+
+function setSleep(mode, minutes = 0) {
+  clearInterval(sleepTimer);
+  player.setStopAfterTrack(false);
+  sleepMode = mode;
+  if (mode === 'time') {
+    sleepEnd = Date.now() + minutes * 60000;
+    sleepTimer = setInterval(sleepTick, 1000);
+    toast(`${minutes >= 60 ? `${Math.floor(minutes / 60)}時間${minutes % 60 ? `${minutes % 60}分` : ''}` : `${minutes}分`}後に止めます`);
+    spark($('#sleepBtn'));
+  } else if (mode === 'track') {
+    player.setStopAfterTrack(true);
+    toast('この曲が終わったら止めます');
+    spark($('#sleepBtn'));
+  } else {
+    toast('スリープタイマーをオフにしました');
+  }
+  renderSleep();
+}
+
+function sleepTick() {
+  if (Date.now() < sleepEnd) { renderSleep(); return; }
+  clearInterval(sleepTimer);
+  sleepMode = null;
+  renderSleep();
+  player.fadeOutAndPause(8).then(() => toast('スリープタイマーで止めました'));
+}
+
+function renderSleep() {
+  $('#sleepBtn').classList.toggle('on', !!sleepMode);
+  const left = Math.max(0, Math.ceil((sleepEnd - Date.now()) / 1000));
+  $('#npLabel').textContent = sleepMode === 'time' ? `スリープまで ${fmt(left)}` : sleepMode === 'track' ? 'この曲で止まります' : '再生中';
+}
+
+function sleepMenu() {
+  const opts = [[15, '15分'], [30, '30分'], [45, '45分'], [60, '1時間'], [90, '1時間30分']];
+  const items = opts.map(([m, label]) => ({ label, run: () => setSleep('time', m) }));
+  items.push({ label: 'この曲が終わるまで', on: sleepMode === 'track', run: () => setSleep('track') });
+  if (sleepMode) items.unshift({ label: 'オフにする', danger: true, run: () => setSleep(null) });
+  actionSheet('スリープタイマー', items);
+}
+
+// ---------- キーボード操作(PC) ----------
+const SHORTCUTS = [
+  ['Space', '再生 / 一時停止'],
+  ['← / →', '5秒戻る / 進む'],
+  ['Shift + ← / →', '前の曲 / 次の曲'],
+  ['+ / −', '音量を上げる / 下げる'],
+  ['M', 'ミュート'],
+  ['L', 'お気に入り'],
+  ['S', 'シャッフル'],
+  ['R', 'リピート'],
+  ['/', '曲を探す'],
+  ['Esc', '閉じる・戻る'],
+  ['?', 'この一覧'],
+];
+let volumeBeforeMute = 0;
+
+function changeVolume(d) {
+  const v = Math.max(0, Math.min(100, fx.settings.volume + d));
+  fx.update({ volume: v });
+  renderSound();
+  toast(`音量 ${v}%`, { duration: 1000 });
+}
+
+function toggleMute() {
+  if (fx.settings.volume > 0) {
+    volumeBeforeMute = fx.settings.volume;
+    fx.update({ volume: 0 });
+    toast('ミュートしました', { duration: 1200 });
+  } else {
+    fx.update({ volume: volumeBeforeMute || 70 });
+    toast(`音量 ${fx.settings.volume}%`, { duration: 1200 });
+  }
+  renderSound();
+}
+
+const isOpen = (sel) => !$(sel).classList.contains('hidden') && !$(sel).classList.contains('closing');
+
+// いちばん手前の画面を閉じる
+function closeTop() {
+  if (isOpen('#dialog')) $('#dialogCancel').click();
+  else if (isOpen('#actionSheet')) $('#actionSheet [data-cancel]').click();
+  else if ($('#nowPlaying').classList.contains('open')) closeNow();
+  else if (view === 'playlist') switchTab(listFrom);
+  else return false;
+  return true;
+}
+
+function onKey(e) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  const el = e.target instanceof Element ? e.target : document.body;
+  const typing = el.closest('input, textarea, select, [contenteditable]');
+  if (e.key === 'Escape') {
+    if (typing && !isOpen('#dialog')) { if (el.id === 'searchInput') el.blur(); return; }
+    if (closeTop()) e.preventDefault();
+    return;
+  }
+  if (typing || isOpen('#dialog') || isOpen('#actionSheet')) return;
+  const t = player.current();
+  switch (e.key) {
+    case ' ':
+      // キーボードで選んだボタンや曲の行の上では、それを押す操作に任せる(マウスで押したあとのフォーカスなら再生/一時停止)
+      if (el !== document.body && el.matches(':focus-visible') && el.closest('button, a, [tabindex]')) return;
+      if (!t) return;
+      player.toggle();
+      break;
+    case 'ArrowRight':
+    case 'ArrowLeft': {
+      if (!t) return;
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      if (e.shiftKey) { if (dir > 0) player.next(); else player.prev(); }
+      else player.seek(Math.max(0, player.currentTime() + dir * 5));
+      break;
+    }
+    case '+': case '=': case ';': changeVolume(5); break;
+    case '-': case '_': changeVolume(-5); break;
+    case 'm': case 'M': toggleMute(); break;
+    case 'l': case 'L': if (!t) return; toggleFavorite(t); break;
+    case 's': case 'S': if (!t) return; $('#shuffleBtn').click(); break;
+    case 'r': case 'R': if (!t) return; $('#repeatBtn').click(); break;
+    case '/': switchTab('library'); $('#searchInput').focus(); break;
+    case '?': actionSheet('キーボード操作', SHORTCUTS.map(([key, label]) => ({ info: true, key, label }))); break;
+    default: return;
+  }
+  e.preventDefault();
+}
+
 // ---------- イベント ----------
 function bind() {
   bindSound();
   bindSync();
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
-  $('#backBtn').onclick = () => switchTab('playlists');
+  $('#backBtn').onclick = () => switchTab(listFrom);
   $('#searchInput').addEventListener('input', renderLibrary);
-  // YouTubeの曲を除くかどうかは次に開いたときも覚えておく
-  const hideYt = $('#hideYoutube');
-  try { hideYt.checked = localStorage.getItem('oto.hideYoutube') === '1'; } catch { /* 無視 */ }
-  hideYt.addEventListener('change', () => {
-    try { localStorage.setItem('oto.hideYoutube', hideYt.checked ? '1' : '0'); } catch { /* 無視 */ }
-    renderLibrary();
-    staggerIn($('#libraryList').children);
+  // 曲・アーティスト・アルバムの切り替えは、次に開いたときも覚えておく
+  document.querySelectorAll('#libMode button').forEach((b) => {
+    b.onclick = () => {
+      if (libMode === b.dataset.mode) return;
+      libMode = b.dataset.mode;
+      try { localStorage.setItem('oto.libMode', libMode); } catch { /* 無視 */ }
+      renderLibrary();
+      staggerIn($('#libraryList').children);
+    };
   });
   $('#playAllBtn').onclick = () => {
     const items = filteredTracks();
@@ -1362,13 +2089,11 @@ function bind() {
     if (pl) { renderPlaylists(); toast(`「${pl.name}」を作成しました`, { celebrate: true }); }
   };
   $('#plPlayBtn').onclick = () => {
-    const pl = playlists.find((p) => p.id === openPlaylistId);
-    const items = pl ? playlistTracks(pl) : [];
+    const items = currentListTracks();
     if (items.length) { spark($('#plPlayBtn')); player.playList(items, 0, { shuffle: false }); }
   };
   $('#plShuffleBtn').onclick = () => {
-    const pl = playlists.find((p) => p.id === openPlaylistId);
-    const items = pl ? playlistTracks(pl) : [];
+    const items = currentListTracks();
     if (items.length) { spark($('#plShuffleBtn')); player.playList(items, -1, { shuffle: true }); }
   };
   $('#plMenuBtn').onclick = playlistMenu;
@@ -1377,6 +2102,7 @@ function bind() {
     e.target.value = '';
   });
   $('#ytForm').addEventListener('submit', addYouTube);
+  $('#ytCancelBtn').onclick = () => ytAbort?.abort();
 
   $('#miniPlayer').addEventListener('click', (e) => {
     if (miniSwiped) { miniSwiped = false; return; }
@@ -1384,6 +2110,13 @@ function bind() {
     else if (e.target.closest('#miniNextBtn')) player.next();
     else openNow();
   });
+  $('#miniPlayer').addEventListener('keydown', (e) => {
+    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    openNow();
+  });
+  $('#favBtn').onclick = () => { const t = player.current(); if (t) toggleFavorite(t, $('#favBtn')); };
+  $('#sleepBtn').onclick = sleepMenu;
   $('#closeNowBtn').onclick = closeNow;
   $('#queueBtn').onclick = () => { $('#queuePanel').classList.toggle('hidden'); renderQueue(); };
   $('#playBtn').onclick = player.toggle;
@@ -1412,6 +2145,27 @@ function bind() {
   bindSheetGestures();
   bindMiniGestures();
   bindTabSwipe();
+  enableReorder($('#playlistTracks'), movePlaylistTrack);
+  enableReorder($('#queueList'), (from, to) => {
+    const base = player.state.index + 1;
+    player.moveInQueue(base + from, base + to);
+  });
+  document.addEventListener('keydown', onKey);
+
+  // アプリを離れるときは、「元に戻す」待ちの削除を確定し、聴いた記録を保存する
+  const leave = () => { commitPending(); flushStats(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') leave(); });
+  window.addEventListener('pagehide', leave);
+
+  // この端末から音声を消した曲は、再生するときにドライブから読み込む
+  player.setMissingBlobHandler(async (t) => {
+    if (!(byId.get(t.id) || t).offloaded) throw new Error('音声データが見つかりません');
+    toast('ドライブから読み込み中…', { duration: 60000 });
+    const blob = await downloadToDevice(t);
+    toast(`「${t.title}」をドライブから読み込みました`);
+    rerender();
+    return blob;
+  });
 
   window.addEventListener('resize', () => { placeYtDock(); refreshMarquees(); });
   $('#nowPlaying').addEventListener('scroll', placeYtDock, { passive: true });
@@ -1421,7 +2175,12 @@ function bind() {
   player.on('state', renderControls);
   player.on('change', startViz);
   fx.onChange(startViz);
-  player.on('error', toast);
+  player.on('error', (msg) => toast(msg));
+  player.on('sleep-done', () => {
+    sleepMode = null;
+    renderSleep();
+    toast('スリープタイマーで止めました');
+  });
   player.on('analyzed', (t) => saveTrackMeta(t, { touch: false }));
   player.on('yt-visible', (v) => { ytVisible = v; placeYtDock(); });
   player.on('yt-title', async (t, title, author) => {
@@ -1433,6 +2192,7 @@ function bind() {
     player.refreshMeta();
   });
   player.on('time', (cur, dur) => {
+    trackListening(cur, dur);
     lastDur = dur;
     const pct = dur ? (cur / dur) * 100 : 0;
     $('#miniProgressBar').style.transform = `scaleX(${pct / 100})`;
@@ -1446,7 +2206,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 39;
+const APP_VERSION = 41;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {
@@ -1479,8 +2239,8 @@ async function init() {
   $('#appVersion').textContent = `oto バージョン ${APP_VERSION}`;
   registerUpdates();
 
+  // 取り込み用サーバー(Renderの無料枠は止まっていることがある)を先に起こしておく
   fetch(YT_API_ENDPOINT.replace(/\/api\/youtube$/, '/health')).catch(() => { });
-  bind();
 }
 
 init();

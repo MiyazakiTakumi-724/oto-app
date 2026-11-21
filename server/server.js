@@ -12,8 +12,16 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const YT_ID_RE = /^[\w-]{11}$/;
 
+// アプリを置いている場所(Vercel と GitHub Pages)からの取り込みを許す。
+// 環境変数 ALLOWED_ORIGIN にカンマ区切りでURLを足せる("*" ならどこからでも)
+const APP_ORIGINS = ['https://oto-app-beryl.vercel.app', 'https://miyazakitakumi-724.github.io'];
+const extraOrigins = String(process.env.ALLOWED_ORIGIN || '')
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
 app.use(cors({
-    origin: process.env.ALLOWED_ORIGIN || '*',
+    origin: extraOrigins.includes('*') ? '*' : [...new Set([...APP_ORIGINS, ...extraOrigins])],
     exposedHeaders: [
         'Content-Length',
         'X-Track-Title',
