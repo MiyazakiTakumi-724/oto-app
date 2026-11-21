@@ -247,6 +247,13 @@
 
       <div class="card">
         <h2>加工</h2>
+        <!-- ワンタップで速度・音程・残響をまとめて変える -->
+        <div id="fxVibes" class="chips">
+          <button type="button" class="chip" data-speed="1" data-keep="1" data-reverb="0">ふつう</button>
+          <button type="button" class="chip" data-speed="0.85" data-keep="0" data-reverb="45">Slowed + Reverb</button>
+          <button type="button" class="chip" data-speed="1.25" data-keep="0" data-reverb="0">ナイトコア</button>
+        </div>
+        <p class="muted small">Slowed + Reverb はゆっくり低く、響きを足して切ない感じに。ナイトコアは速く高くして、明るく疾走感のある感じにします。</p>
         <div class="setting">
           <div class="setting-head">
             <label for="fxReverb">ホール残響</label>
@@ -260,12 +267,26 @@
             <output id="fxSpeedVal" for="fxSpeed"></output>
           </div>
           <input id="fxSpeed" type="range" min="0.5" max="2" step="0.05">
-          <p class="muted small">音程は変わりません。</p>
         </div>
+        <label class="switch-row" for="fxKeepPitch">
+          <span><b>音程をそのままにする</b><span class="muted small">オフにすると、速くすると高く、遅くすると低くなります</span></span>
+          <input id="fxKeepPitch" type="checkbox" class="switch">
+        </label>
       </div>
 
       <button id="fxReset" class="pill wide">すべて元に戻す</button>
       <p class="muted small sound-note">iPhoneで画面を消すと再生が止まる場合は、「すべて元に戻す」を押してアプリを開き直してください。</p>
+
+      <!-- 押している間だけ、効果をすべて止めた元の音を鳴らす(曲を再生しているときだけ出す) -->
+      <div class="compare-bar">
+        <button id="compareBtn" class="compare-btn" type="button" aria-label="押している間、元の音を鳴らす(Bキーでも)">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 14v-2a8 8 0 0116 0v2" />
+            <path class="fill" d="M3 14h4v6H5a2 2 0 01-2-2zM17 14h4v4a2 2 0 01-2 2h-2z" />
+          </svg>
+          <span>長押しで元の音と比べる</span>
+        </button>
+      </div>
     </section>
   </main>
 

@@ -34,7 +34,8 @@ const DEFAULTS = {
   eq: [0, 0, 0, 0, 0], // dB
   night: false,        // 小さい音を持ち上げ、大きい音を抑える
   reverb: 0,           // 0〜100
-  speed: 1,            // 再生速度(音程はそのまま)
+  speed: 1,            // 再生速度
+  keepPitch: true,     // 速度を変えても音程はそのまま(false で、速くすると高く・遅くすると低くなる)
   vocal: 100,          // ボーカルの音量 % (0〜200)
   inst: 100,           // 伴奏の音量 % (0〜200)
   width: 0,            // ステレオ拡張 0〜100
@@ -69,6 +70,25 @@ export function update(patch) {
 export function reset() {
   update({ ...DEFAULTS, eq: DEFAULTS.eq.slice(), volume: settings.volume });
 }
+
+// 「元の音と比べる」を押している間は、音色や速さを変える効果をすべて止める(音量と曲ごとの音量補正はそのまま)
+let bypass = false;
+const NEUTRAL = { eq: [0, 0, 0, 0, 0], night: false, reverb: 0, vocal: 100, inst: 100, width: 0, spatial: 'off', speed: 1, keepPitch: true };
+const live = () => (bypass ? { ...settings, ...NEUTRAL } : settings);
+
+export function setBypass(on) {
+  if (bypass === on) return;
+  bypass = on;
+  apply();
+  listeners.forEach((fn) => fn());
+}
+
+export const playbackRate = () => live().speed;
+export const keepsPitch = () => live().keepPitch !== false;
+
+// 元の音と比べて違いのある効果を使っているか
+export const hasEffects = () => settings.eq.some((g) => g !== 0) || settings.night || settings.reverb > 0 ||
+  settings.vocal !== 100 || settings.inst !== 100 || settings.width > 0 || settings.spatial !== 'off' || settings.speed !== 1;
 
 // スライダーの位置(%)を音量の倍率にする。耳の感じ方に合わせて2乗のカーブにする(70%で約−6dB)
 export const volumeGain = (v = settings.volume) => Math.pow(Math.max(0, Math.min(100, v)) / 100, 2);
@@ -570,19 +590,22 @@ function apply() {
   const { ctx, eq, comp, makeup, wet, dry, conv } = graph;
   const now = ctx.currentTime;
   const glide = (p, v, t = 0.05) => p.setTargetAtTime(v, now, t);
+  // 今鳴らす値(比べている間は効果なし)。処理を休ませるかどうかは、実際の設定 settings で決める
+  // (比べている間も止めずにおき、離したときに途切れないようにする)
+  const st = live();
 
   // ブラウザのリミッターは常に少し(約0.8dB)持ち上げるので、その分を差し引く
   glide(graph.volume.gain, volumeGain() * LIMITER_MAKEUP, 0.03);
 
   // イコライザーで持ち上げた分の音割れ対策。音量を下げているときはその余裕を使い、足りない分だけ先に下げる
   // (全体を下げすぎると、持ち上げたのに効きが弱く感じるため。音量を上げたときに大きくなる向きは保つ)
-  const boost = Math.max(0, ...settings.eq);
+  const boost = Math.max(0, ...st.eq);
   const headroom = -20 * Math.log10(Math.max(1e-4, volumeGain()));
   glide(graph.preamp.gain, dbToGain(-Math.max(0, boost * 0.7 - headroom * 0.5)));
-  eq.forEach((f, i) => glide(f.gain, settings.eq[i] || 0));
+  eq.forEach((f, i) => glide(f.gain, st.eq[i] || 0));
 
   // ナイトモード: ゆるやかに圧縮する(ブラウザの圧縮器は自動で音量を持ち上げるので、補正は控えめ)
-  if (settings.night) {
+  if (st.night) {
     comp.threshold.value = -26;
     comp.knee.value = 18;
     comp.ratio.value = 3;
@@ -600,41 +623,42 @@ function apply() {
     conv.buffer = makeImpulse(ctx, HALL);
     graph.impulse = true;
   }
-  const r = settings.reverb / 100;
+  const r = st.reverb / 100;
   glide(wet.gain, r * 0.32);
   glide(dry.gain, 1 - r * 0.2);
 
   const { vocal, width, spatial } = graph;
-  const v = settings.vocal / 100;
-  const i = settings.inst / 100;
+  const v = st.vocal / 100;
+  const i = st.inst / 100;
   const same = v === i;
-  if (!same) loadCenterWorklet(ctx, vocal);
+  const split = settings.vocal !== settings.inst;
+  if (split) loadCenterWorklet(ctx, vocal);
   glide(vocal.direct.gain, same ? i : 0);
   if (vocal.worklet) {
     const p = vocal.worklet.parameters;
-    glide(p.get('vocal'), v);
-    glide(p.get('inst'), i);
+    glide(p.get('vocal'), settings.vocal / 100);
+    glide(p.get('inst'), settings.inst / 100);
     glide(vocal.wet.gain, same ? 0 : 1);
     glide(vocal.inst.gain, 0);
     glide(vocal.diff.gain, 0);
     // ボーカルと伴奏を同じ音量に戻したら、フェードし終わってから分ける処理を休ませる
     const active = p.get('active');
     active.cancelScheduledValues(now);
-    if (same) active.setValueAtTime(0, now + (vocal.on ? 0.5 : 0));
+    if (!split) active.setValueAtTime(0, now + (vocal.on ? 0.5 : 0));
     else active.setValueAtTime(1, now);
-    vocal.on = !same;
+    vocal.on = split;
   } else {
     glide(vocal.inst.gain, same ? 0 : i);
     glide(vocal.diff.gain, same ? 0 : v - i);
   }
 
-  glide(width.amount.gain, (settings.width / 100) * 1.4);
-  glide(width.level.gain, dbToGain((-settings.width / 100) * 3));
+  glide(width.amount.gain, (st.width / 100) * 1.4);
+  glide(width.level.gain, dbToGain((-st.width / 100) * 3));
 
-  const mode = settings.spatial;
+  const mode = st.spatial;
   const s = Math.max(0, Math.min(1, (settings.spatialAmount ?? DEFAULTS.spatialAmount) / 100));
-  setLive(spatial, spatial.d8, mode === '8d');
-  setLive(spatial, spatial.sur, mode === 'surround');
+  setLive(spatial, spatial.d8, settings.spatial === '8d');
+  setLive(spatial, spatial.sur, settings.spatial === 'surround');
   glide(spatial.dry.gain, mode === 'off' ? 1 : 0, 0.08);
   glide(spatial.d8.out.gain, mode === '8d' ? 1 : 0, 0.08);
   glide(spatial.sur.out.gain, mode === 'surround' ? 1 : 0, 0.08);

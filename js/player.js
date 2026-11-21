@@ -9,9 +9,15 @@ const SILENT = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQ
 function makeDeck() {
   const el = new Audio();
   el.preload = 'auto';
-  el.preservesPitch = true;
-  el.webkitPreservesPitch = true;
   return { el, url: null };
+}
+
+// 再生速度と、速度を変えたときに音程を保つかどうか(曲を読み込むと速度は 1 に戻るので、そのたびに設定する)
+function applyRate(d) {
+  const keep = fx.keepsPitch();
+  d.el.preservesPitch = keep;
+  d.el.webkitPreservesPitch = keep;
+  d.el.playbackRate = fx.playbackRate();
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -87,7 +93,7 @@ function onYtState(e) {
 // YouTube側の機能で変えられるのは再生速度だけ(音声そのものには手を加えられない)
 function applyYtSpeed() {
   if (!yt?.setPlaybackRate) return;
-  const speed = Math.min(2, Math.max(0.25, fx.settings.speed));
+  const speed = Math.min(2, Math.max(0.25, fx.playbackRate()));
   if (yt.getPlaybackRate?.() !== speed) yt.setPlaybackRate(speed);
 }
 
@@ -170,13 +176,13 @@ function prepare(d, t, blob) {
     if (d.url) URL.revokeObjectURL(d.url);
     d.url = URL.createObjectURL(blob);
     d.el.src = d.url;
-    d.el.playbackRate = fx.settings.speed;
+    applyRate(d);
     fx.setNorm(d, t);
     const done = () => {
       d.el.removeEventListener('loadedmetadata', done);
       const s = startOf(t);
       if (s) { try { d.el.currentTime = s; } catch { /* 無視 */ } }
-      d.el.playbackRate = fx.settings.speed;
+      applyRate(d);
       resolve();
     };
     d.el.addEventListener('loadedmetadata', done);
@@ -364,7 +370,7 @@ fx.onChange(() => {
   if (fx.needsGraph()) fx.ensureGraph(decks);
   applyVolume();
   if (current()?.type === 'youtube') applyYtSpeed();
-  decks.forEach((d) => { d.el.playbackRate = fx.settings.speed; });
+  decks.forEach(applyRate);
   const t = current();
   if (t?.type === 'file') {
     fx.setNorm(deck(), t);
@@ -397,7 +403,8 @@ export function play() {
   if (t.type === 'file') {
     userGesture();
     skipIntro(t, deck().el);
-    deck().el.play().catch(() => {});
+    // 再生できなかったとき(音声がない・ブラウザに止められた)は、再生中の表示に戻さない
+    deck().el.play().catch(() => setPlaying(false));
   } else yt?.playVideo?.();
 }
 

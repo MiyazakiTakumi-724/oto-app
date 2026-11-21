@@ -78,6 +78,20 @@ export async function putTrack(track, blob, { touch = true } = {}) {
   if (touch) notify();
 }
 
+// 曲の情報だけを書き換える。もう消された曲は書き戻さない
+// (再生回数や解析結果の保存が削除と行き違っても、音声のない曲として復活しないように)
+export async function updateTrack(track, { touch = true } = {}) {
+  if (touch) track.updatedAt = Date.now();
+  const saved = await run(['tracks'], 'readwrite', async (tx) => {
+    const st = tx.objectStore('tracks');
+    if ((await req2p(st.getKey(track.id))) === undefined) return false;
+    st.put(track);
+    return true;
+  });
+  if (saved && touch) notify();
+  return saved;
+}
+
 export async function getBlob(id) {
   return run(['blobs'], 'readonly', (tx) => req2p(tx.objectStore('blobs').get(id)));
 }

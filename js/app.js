@@ -583,6 +583,7 @@ let trackSwiping = false; // スワイプで曲を切り替えている最中
 function renderNow() {
   const t = player.current();
   $('#miniPlayer').classList.toggle('hidden', !t);
+  document.body.classList.toggle('has-mini', !!t);
   document.querySelectorAll('.track').forEach((el) => el.classList.remove('playing'));
   if (!t) return;
   setMarquee($('#miniTitle'), t.title);
@@ -836,7 +837,7 @@ async function editTrack(t) {
 
 async function saveTrackMeta(t, { touch = true } = {}) {
   const { artUrl, ...rec } = t;
-  await db.putTrack(rec, null, { touch });
+  await db.updateTrack(rec, { touch });
   t.updatedAt = rec.updatedAt;
 }
 
@@ -1176,6 +1177,11 @@ function renderSound() {
   $('#fxReverbVal').textContent = s.reverb ? `${s.reverb}%` : 'オフ';
   $('#fxSpeed').value = s.speed;
   $('#fxSpeedVal').textContent = `${Number(s.speed).toFixed(2)}倍`;
+  $('#fxKeepPitch').checked = s.keepPitch !== false;
+  document.querySelectorAll('#fxVibes .chip').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.speed) === Number(s.speed) &&
+      (b.dataset.keep === '1') === (s.keepPitch !== false) && Number(b.dataset.reverb) === s.reverb);
+  });
   $('#fxWidth').value = s.width;
   $('#fxWidthVal').textContent = s.width ? `${s.width}%` : 'オフ';
   $('#fxRotation').value = s.rotation;
@@ -1258,6 +1264,14 @@ function bindSound() {
   flag('#fxNormalize', 'normalize');
   flag('#fxNight', 'night');
   flag('#fxViz', 'visualizer');
+  flag('#fxKeepPitch', 'keepPitch');
+  document.querySelectorAll('#fxVibes .chip').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.speed !== '1') spark(b);
+      fx.update({ speed: Number(b.dataset.speed), keepPitch: b.dataset.keep === '1', reverb: Number(b.dataset.reverb) });
+      renderSound();
+    };
+  });
   num('#fxWidth', 'width');
   num('#fxRotation', 'rotation');
   num('#fxSpatialAmount', 'spatialAmount');
@@ -1678,7 +1692,7 @@ function bindTabSwipe() {
   const W = () => window.innerWidth;
   // 曲が少なくて画面の下が空いていても効くように、画面全体で受ける
   bindSwipe(document.body, {
-    canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock, .drag-handle'),
+    canStart: (e) => !e.target.closest('input, textarea, .chips, .segmented, .mini, .tabbar, .sheet, .action-sheet, .yt-dock, .drag-handle, .compare-btn'),
     onLock: (g) => (g.axis === 'x' ? undefined : false),
     onMove: (g) => {
       const name = neighborTab(g.dx);
@@ -1973,6 +1987,49 @@ function sleepMenu() {
   actionSheet('スリープタイマー', items);
 }
 
+// ---------- 元の音と比べる ----------
+// ボタン(または B キー)を押している間だけ、効果をすべて止めた元の音を鳴らす
+let comparing = false;
+
+function compareOn() {
+  if (comparing) return;
+  if (!player.current()) { toast('曲を再生すると、元の音と比べられます'); return; }
+  if (!fx.hasEffects()) { toast('今はサウンドの効果を使っていないので、元の音のままです'); return; }
+  comparing = true;
+  fx.setBypass(true);
+  const b = $('#compareBtn');
+  b.classList.add('on');
+  b.querySelector('span').textContent = '元の音を再生中';
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch { /* 無視 */ } }
+}
+
+function compareOff() {
+  if (!comparing) return;
+  comparing = false;
+  fx.setBypass(false);
+  const b = $('#compareBtn');
+  b.classList.remove('on');
+  b.querySelector('span').textContent = '長押しで元の音と比べる';
+}
+
+function bindCompare() {
+  const b = $('#compareBtn');
+  b.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // 指がボタンから外れても、離すまでは元の音のままにする
+    try { b.setPointerCapture(e.pointerId); } catch { /* 無視 */ }
+    compareOn();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'].forEach((ev) => b.addEventListener(ev, compareOff));
+  b.addEventListener('keydown', (e) => {
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); compareOn(); }
+  });
+  b.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') compareOff(); });
+  // 長押しでメニューや文字の選択が出ないようにする
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('keyup', (e) => { if (e.key === 'b' || e.key === 'B') compareOff(); });
+}
+
 // ---------- キーボード操作(PC) ----------
 const SHORTCUTS = [
   ['Space', '再生 / 一時停止'],
@@ -1983,6 +2040,7 @@ const SHORTCUTS = [
   ['L', 'お気に入り'],
   ['S', 'シャッフル'],
   ['R', 'リピート'],
+  ['B(押している間)', '元の音と比べる'],
   ['/', '曲を探す'],
   ['Esc', '閉じる・戻る'],
   ['?', 'この一覧'],
@@ -2052,6 +2110,7 @@ function onKey(e) {
     case 'l': case 'L': if (!t) return; toggleFavorite(t); break;
     case 's': case 'S': if (!t) return; $('#shuffleBtn').click(); break;
     case 'r': case 'R': if (!t) return; $('#repeatBtn').click(); break;
+    case 'b': case 'B': if (!e.repeat) compareOn(); break;
     case '/': switchTab('library'); $('#searchInput').focus(); break;
     case '?': actionSheet('キーボード操作', SHORTCUTS.map(([key, label]) => ({ info: true, key, label }))); break;
     default: return;
@@ -2063,6 +2122,7 @@ function onKey(e) {
 function bind() {
   bindSound();
   bindSync();
+  bindCompare();
   document.querySelectorAll('.tabbar button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
   $('#backBtn').onclick = () => switchTab(listFrom);
   $('#searchInput').addEventListener('input', renderLibrary);
@@ -2153,7 +2213,7 @@ function bind() {
   document.addEventListener('keydown', onKey);
 
   // アプリを離れるときは、「元に戻す」待ちの削除を確定し、聴いた記録を保存する
-  const leave = () => { commitPending(); flushStats(); };
+  const leave = () => { commitPending(); flushStats(); compareOff(); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') leave(); });
   window.addEventListener('pagehide', leave);
 
@@ -2206,7 +2266,7 @@ function bind() {
 
 // ---------- アプリの更新 ----------
 // sw.js の CACHE の番号と合わせる
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 
 // 新しい版が公開されたら取り込み、再生していなければその場で読み込み直す
 function registerUpdates() {

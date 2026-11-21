@@ -469,6 +469,20 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border-radius: 
 /* キーボード操作の案内は、マウスのある端末(PC)でだけ出す */
 @media (hover: none), (pointer: coarse) { .kbd-hint { display: none; } }
 
+/* ---------- 元の音と比べる(サウンドタブの下に浮かぶボタン) ---------- */
+/* 曲を再生しているときだけ出す。ミニプレイヤーのすぐ上に止まって、スクロールしても押せる */
+.compare-bar { display: none; position: sticky; z-index: 4; bottom: calc(var(--tab-h) + var(--mini-h) + var(--safe-b) + 18px); justify-content: center; margin-top: 12px; pointer-events: none; }
+body.has-mini .compare-bar { display: flex; }
+.compare-btn {
+  pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 22px;
+  background: rgba(52, 52, 56, .92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .45); font-weight: 700; font-size: 14px;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none;
+  transition: transform .25s var(--ease-spring), background-color .2s, color .2s;
+}
+.compare-btn svg { width: 20px; height: 20px; }
+.compare-btn.on { background: var(--text); color: var(--bg); transform: scale(1.06); }
+
 /* 動きを減らす設定の端末では止める */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
