@@ -152,6 +152,7 @@ const COOKIE_TEXT = toNetscapeCookies(process.env.YOUTUBE_COOKIES);
 // YOUTUBE_COOKIES を更新すると Render がサーバーを起動し直すので、新しい Cookie をまた使い始める
 let cookiesExpired = false;
 const COOKIES_INVALID_RE = /cookies are no longer valid/i;
+const MEDIA_403_RE = /unable to download video data: HTTP Error 403/i;
 
 function botMessage() {
     if (!COOKIE_TEXT) {
@@ -245,6 +246,10 @@ async function download(videoId, tmpDir, signal) {
         if (!result.ok && !signal.aborted && !CONTENT_FAILURES.has(describeFailure(result).kind)) {
             result = await tryOnce(false);
         }
+    }
+    // 音声の本体のダウンロードを 403 で断られることがときどきあるが、すぐやり直せば通ることが多い
+    if (!result.ok && !signal.aborted && MEDIA_403_RE.test(result.log)) {
+        result = await tryOnce(withCookies && !cookiesExpired);
     }
     return result;
 }

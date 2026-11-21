@@ -5,7 +5,7 @@
 スマホのホーム画面に追加して使う、YouTube Music風の音楽プレイヤー(PWA)。アプリ本体はビルド不要の静的サイトで、YouTubeからの取り込みだけ別のサーバーを使います。
 
 - アプリ: https://oto-app-beryl.vercel.app/ (Vercel)・ https://miyazakitakumi-724.github.io/oto-app/ (GitHub Pages)
-- YouTube取り込み用サーバー: Render(`server/`)。接続先は `js/config.js` の `YT_API_ENDPOINT`
+- YouTube取り込み用サーバー: 開発者の家のPC(`server/` を Docker で動かし、Tailscale Funnel で公開)。接続先は `js/config.js` の `YT_API_ENDPOINT`
 
 ## このアプリについて
 - 自分と友達が使うために作った、個人開発のアプリです。一般向けのサービスとして公開・運営するものではありません
@@ -50,12 +50,21 @@
 ## YouTubeからの取り込みについて
 YouTubeの利用規約は、YouTubeが用意したボタン以外での動画・音声のダウンロードを認めていません。この機能は自分と友達の個人利用に限っています。
 
-- `server/`: Render で動かす取り込み用サーバー(Docker、yt-dlp)。Vercel 版と GitHub Pages 版のアプリからの取り込みを許す。環境変数 `YOUTUBE_COOKIES`(YouTubeのCookie)、`ALLOWED_ORIGIN`(ほかに許すURLをカンマ区切りで追加。`*` ならどこからでも)
+- `server/`: 取り込み用サーバー(Docker、yt-dlp)。Vercel 版と GitHub Pages 版のアプリからの取り込みを許す。環境変数 `YOUTUBE_COOKIES`(YouTubeのCookie)、`ALLOWED_ORIGIN`(ほかに許すURLをカンマ区切りで追加。`*` ならどこからでも)
   - 起動時と6時間ごとに、yt-dlp を最新の nightly 版へ自動で更新する(YouTube の変更で取り込めなくなるのを防ぐ)。今の版は `/health` で見られる
   - 取り込めなかったときは、理由(Cookie切れ・年齢制限・非公開など)に合わせたメッセージを返す。Cookie が切れていたら、Cookie なしでもう一度試す
 - `api/youtube.js`: Vercel の関数版(@distube/ytdl-core)
 
-### YouTubeのCookieを長持ちさせる
+### 家のPCで動かす(今の方法)
+Render などクラウドのサーバーは YouTube に IP ごと止められやすいので、家のPCで動かしています。家の回線なら Cookie もいりません。取り込めるのは、PCの電源が入っていて Docker Desktop が動いている間だけです。
+
+1. Docker Desktop を入れ、Settings → General の「Start Docker Desktop when you sign in to your computer」をオンにする
+2. `server/` で `docker build -t oto-yt .` を実行し、`docker run -d --name oto-yt --restart unless-stopped -p 127.0.0.1:3001:3001 oto-yt` で起動する
+3. Tailscale を入れてログインし、`tailscale funnel --bg 3001` で公開する(初回は Funnel を有効にする確認が出る)。表示された `https://〇〇.ts.net` を `js/config.js` の `YT_API_ENDPOINT` に書く
+
+`server/` を変えたときは、2 の `docker build` をしてから `docker rm -f oto-yt` で消し、`docker run` し直す。
+
+### YouTubeのCookieを長持ちさせる(クラウドのサーバーで動かすとき)
 Render のようなクラウドのサーバーから取り込むと、YouTube に「ボットではない確認」を求められます。そのため、ログインした Cookie を `YOUTUBE_COOKIES` に入れておきます。
 
 普段のブラウザから書き出した Cookie は、すぐ使えなくなります。そのブラウザで YouTube を開いている間に、YouTube が Cookie を作り直すためです。次の手順で書き出すと長持ちします(yt-dlp の公式の手順)。
