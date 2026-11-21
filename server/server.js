@@ -177,6 +177,9 @@ const FAILURES = [
     { kind: 'outdated', re: /Requested format is not available|Only images are available|Unable to extract|challenge solving failed|Signature extraction failed|nsig extraction failed|report this issue/i, status: 502, message: 'YouTube側の変更で取り込めませんでした。取り込みツール(yt-dlp)が対応すると、サーバーが自動で更新します。時間をおいてからお試しください。' },
 ];
 const CONTENT_FAILURES = new Set(['private', 'members', 'age', 'geo', 'live', 'unavailable']);
+// ページや API の読み込みを 429/403 で断られたときは、YouTube がこのサーバーを止めている
+// (yt-dlp は最後に「Failed to extract any player response; please report this issue」と出すが、yt-dlp の不具合ではない)
+const BLOCKED_RE = /Unable to download (?:webpage|API page): HTTP Error (?:429|403)/i;
 
 function describeFailure({ log, timedOut }) {
     if (timedOut) {
@@ -184,7 +187,8 @@ function describeFailure({ log, timedOut }) {
     }
     // まず ERROR の行で見分け、わからなければ WARNING も含めた全体で見る
     const errors = log.split('\n').filter((l) => l.startsWith('ERROR:')).join('\n');
-    const f = FAILURES.find((x) => x.re.test(errors)) || FAILURES.find((x) => x.re.test(log));
+    let f = FAILURES.find((x) => x.re.test(errors)) || FAILURES.find((x) => x.re.test(log));
+    if ((!f || f.kind === 'outdated') && BLOCKED_RE.test(log)) f = FAILURES.find((x) => x.kind === 'bot');
     if (!f) return { kind: 'other', status: 500, message: '音声の取り込みに失敗しました。しばらく待ってからもう一度お試しください。' };
     return f.kind === 'bot' ? { ...f, message: botMessage() } : f;
 }
