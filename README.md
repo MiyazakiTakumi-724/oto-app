@@ -51,7 +51,21 @@
 YouTubeの利用規約は、YouTubeが用意したボタン以外での動画・音声のダウンロードを認めていません。この機能は自分と友達の個人利用に限っています。
 
 - `server/`: Render で動かす取り込み用サーバー(Docker、yt-dlp)。Vercel 版と GitHub Pages 版のアプリからの取り込みを許す。環境変数 `YOUTUBE_COOKIES`(YouTubeのCookie)、`ALLOWED_ORIGIN`(ほかに許すURLをカンマ区切りで追加。`*` ならどこからでも)
+  - 起動時と6時間ごとに、yt-dlp を最新の nightly 版へ自動で更新する(YouTube の変更で取り込めなくなるのを防ぐ)。今の版は `/health` で見られる
+  - 取り込めなかったときは、理由(Cookie切れ・年齢制限・非公開など)に合わせたメッセージを返す。Cookie が切れていたら、Cookie なしでもう一度試す
 - `api/youtube.js`: Vercel の関数版(@distube/ytdl-core)
+
+### YouTubeのCookieを長持ちさせる
+Render のようなクラウドのサーバーから取り込むと、YouTube に「ボットではない確認」を求められます。そのため、ログインした Cookie を `YOUTUBE_COOKIES` に入れておきます。
+
+普段のブラウザから書き出した Cookie は、すぐ使えなくなります。そのブラウザで YouTube を開いている間に、YouTube が Cookie を作り直すためです。次の手順で書き出すと長持ちします(yt-dlp の公式の手順)。
+
+1. Chrome の拡張機能「Cookie-Editor」の詳細を開き、「シークレット モードでの実行を許可する」をオンにする(Edge なら「InPrivate で許可する」)
+2. シークレットウィンドウ(Ctrl+Shift+N)で YouTube を開き、ログインする。yt-dlp で使ったアカウントは停止されるおそれがある(yt-dlp の注意書き)ので、取り込み専用のサブアカウントがおすすめ
+3. 同じタブで https://www.youtube.com/robots.txt を開く(シークレットのタブはこの1つだけにする)
+4. Cookie-Editor の Export → JSON でコピーする
+5. **ログアウトせずに**シークレットウィンドウを閉じる(ログアウトすると、書き出した Cookie も使えなくなる)
+6. Render のサービスの Environment で `YOUTUBE_COOKIES` に貼り付けて保存する
 
 ## ローカルで試す
 ```
